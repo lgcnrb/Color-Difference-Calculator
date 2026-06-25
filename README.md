@@ -1,63 +1,124 @@
-# Color-Difference-Calculator
+# Hybrid Color Control System
+
+Endustriyel spektrofotometre (X-Rite) ve kamera tabanli goruntu analizini birlestiren, **Multimodal Kalite Kontrol Sistemi**.
 
 <p align="center">
-  <img src="test_image/ColorDif.png" alt="test_image/ColorDif.png" width="800" />
+  <img src="test_image/ColorDif.png" alt="Hybrid Color Control System" width="800" />
 </p>
 
-I took a snapshot with OpenCV. I converted the image from "Bgr" to "Rgb" with the OpenCV function.
-Then, using the ```rgb2lab```, ```lab2lch``` functions of the ```skimage.color``` module, I converted the image to CIELAB, CIELCH color space. 
-I assigned the values of the "Reference Lab" and "Lab" to "lab reference" and "lab" with the ```LabColor``` function of the ```colormath.color.objects``` module.
-In this way, I calculated Delta E with ```delta_e_cie1976```, ```delta_e_cie1994```, ```delta_e_cie2000```, ```delta_e_cmc``` functions of ```colormath.color_diff``` module.
-In "LAB", "LCH" and "RGB" calculation, I first averaged all the pixels of the images.
-Then I calculated the difference by subtracting the measured value from the reference value.
-I placed these operations on the interface with PyQt5.
+## Ozellikler
 
+- **Cok Modlu Analiz:** Spektrofotometre + Kamera entegrasyonu
+- **4 Delta E Yontemi:** CIE 1976, CIE 1994, CIEDE 2000, CMC
+- **Hibrit Lot Karari:** Cihaz + Kamera verilerini birlestiren karar motoru
+- **Yuzey Homojenlik Analizi:** Kumaş表面 renk dalgalanması tespiti
+- **X-Rite Dosya Destegi:** CSV, TXT, CXF, XML formatlarinda veri yukleme
+- **Profesyonel Arayuz:** Koyu tema, renk ornekleyicileri, canli onizleme
+- **Excel Raporlama:** Detayli rapor export islemi
 
-## Testing
-``` python color_difference_calculator.py ```
+## Mimari
 
-#### CIE-Lab-LCH
-CIE-Lab-LCH Delta-E CIE76:
-<p align="center">
-  <img src="test_image/CIE76.png" alt="test_image/CIE76.png" width="700" />
-</p>
-
-CIE-Lab-LCH Delta-E CIE94:
-<p align="center">
-  <img src="test_image/CIE94.png" alt="test_image/CIE94.png" width="700" />
-</p>
-
-CIE-Lab-LCH Delta-E CIEDE2000:
-<p align="center">
-  <img src="test_image/CIE2000.png" alt="test_image/CIE2000.png" width="700" />
-</p>
-
-CIE-Lab-LCH CIE CMC:
-<p align="center">
-  <img src="test_image/CIECMC.png" alt="test_image/CIECMC.png" width="700" />
-</p>
-
-#### RGB
-<p align="center">
-  <img src="test_image/RGB.png" alt="test_image/RGB.png" width="700" />
-</p>
-
-## Setup Specs
-> * Ubuntu 18.04
-> * OpenCV 3.4.4
-> * Python 3.6
-> * Colormath 3.0.0
-> * Scikit-image 0.16.2
-> * PyQt5 5.13.2
-> * Pandas 0.25.1
-> * xlsxwriter 1.2.8
-
-## Output Files
-Terminal output:
 ```
-Saved to:
-/.../Color_Difference_Calculator/output.xlsx
+Color-Difference-Calculator/
+├── config/
+│   ├── __init__.py
+│   └── settings.py              # Uygulama sabitleri ve konfigurasyon
+├── core/
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── color_data.py        # Veri modelleri (dataclass)
+│   ├── camera/
+│   │   ├── __init__.py
+│   │   └── manager.py           # Kamera yonetimi (singleton)
+│   ├── color_engine/
+│   │   ├── __init__.py
+│   │   └── engine.py            # Renk hesaplama motoru
+│   ├── spectrophotometer/
+│   │   ├── __init__.py
+│   │   └── parser.py            # X-Rite dosya parser
+│   └── lotting/
+│       ├── __init__.py
+│       └── engine.py            # Hibrit lotlama karar motoru
+├── ui/
+│   ├── __init__.py
+│   ├── main_window.py           # Ana pencere (MVC: View)
+│   ├── styles/
+│   │   └── dark_theme.py        # Profesyonel koyu tema
+│   └── widgets/
+├── data/
+│   ├── samples/                 # Ornek veriler
+│   ├── exports/                 # Disa aktarilan dosyalar
+│   └── logs/                    # Log dosyalari
+├── tests/
+│   ├── __init__.py
+│   └── test_core.py             # Birim testler
+├── main.py                      # Uygulama giris noktasi
+├── requirements.txt
+└── README.md
 ```
-<p align="center">
-  <img src="test_image/Color_Difference_Calculator_output.jpg" alt="test_image/Color_Difference_Calculator_output.jpg"" width="500" />
-</p>
+
+## Kurulum
+
+```bash
+pip install -r requirements.txt
+```
+
+## Calistirma
+
+```bash
+python main.py
+```
+
+## Testler
+
+```bash
+pytest tests/ -v
+```
+
+## Bilimsel Temeller
+
+### Hibrit Lot Karar Mekanizmasi
+
+Sistem iki kanaldan gelen veriyi birlestirerek lot kararini verir:
+
+1. **Spektrofotometre Kanali (%70 agirlik):** X-Rite cihazindan gelen $L^*a^*b^*$ degerleri
+2. **Kamera Kanali (%30 agirlik):** Goruntu analizinden elde edilen ortalama renk + yuzey homojenligi
+
+**Lot Sinirlari:**
+| Lot | Delta E Esimigi | Aciklama |
+|-----|-----------------|----------|
+| LOT A | DE <= 0.8 | Kusursuz uyum |
+| LOT B | DE <= 1.0 | Kabul edilebilir sapma |
+| LOT C | DE <= 1.5 | Kendi icinde eslesme |
+| RED | DE > 1.5 veya heterojen | Tolerans disi |
+
+### Yuzey Homojenlik Testi
+
+Kameradan alinan goruntudeki L* kanalinin standart sapması hesaplanir:
+- Eger $\sigma_{L^*}$ > 2.0 ise yuzey **heterojen** olarak isaretlenir
+- Heterojen lotlar otomatik olarak **RED** karari alir
+
+## Kullanim Senaryolari
+
+### 1. Sadece Kamera ile
+1. Master rengi ayarla
+2. Referansi olc
+3. Kumaş样品 olc
+4. Delta E ve lot kararini gor
+
+### 2. X-Rite + Kamera Hibrit
+1. X-Rite dosyasini yukle (otomatik master olarak ayarlanir)
+2. Kamera ile referansi olc
+3. Kamera ile sample olc
+4. Hibrit karar motoru sonucu uretir
+
+### 3. Sadece RGB
+1. Renk uzayini RGB olarak sec
+2. Referansi olc
+3. Sample olc
+4. RGB fark degerlerini gor
+
+## Guncelleme Notlari
+
+- **v2.0:** MVC mimarisi, hibrit lot motoru, X-Rite entegrasyonu
+- **v1.0:** Tek dosya yapisi, temel Delta E hesaplama

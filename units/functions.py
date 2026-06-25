@@ -2,6 +2,12 @@
 # !/usr/bin/env python
 import cv2
 import math
+import numpy as np
+
+# colormath numpy 2.x uyumluluk fix'i
+if not hasattr(np, "asscalar"):
+    np.asscalar = lambda x: x.item()
+
 from colormath.color_diff import delta_e_cie1976, delta_e_cie1994, delta_e_cie2000, delta_e_cmc
 from colormath.color_objects import LabColor
 from skimage.color import rgb2lab, lab2lch
