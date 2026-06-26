@@ -1,0 +1,17 @@
+{
+  "jobs": [
+    {
+      "id": "F027D91D",
+      "name": "A",
+      "customer": "A",
+      "season": "A",
+      "description": "",
+      "masters": [],
+      "samples": [],
+      "dynamic_fields": [],
+      "created_at": "2026-06-26T22:24:00.951942",
+      "updated_at": "2026-06-26T22:24:00.951942"
+    }
+  ],
+  "updated_at": "2026-06-26T22:24:00.951942"
+}

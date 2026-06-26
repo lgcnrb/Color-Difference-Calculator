@@ -72,25 +72,34 @@ class StatCard(QFrame):
     def __init__(self, title: str, value: str = "---", parent=None):
         super().__init__(parent)
         self.setObjectName("card")
-        self.setFixedHeight(56)
+        self.setFixedHeight(48)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setContentsMargins(10, 4, 10, 4)
         layout.setSpacing(2)
+
         self.title_label = QLabel(title)
-        self.title_label.setStyleSheet("color: #888888; font-size: 8pt; border: none; background: transparent;")
-        self.title_label.setFixedHeight(16)
+        self.title_label.setStyleSheet(
+            "color: #999999; font-size: 7pt; border: none; background: transparent;"
+        )
+        self.title_label.setFixedHeight(14)
+
         self.value_label = QLabel(value)
         self.value_label.setStyleSheet(
-            "color: #FFFFFF; font-size: 16pt; font-weight: bold; border: none; background: transparent;"
+            "color: #FFFFFF; font-size: 12pt; font-weight: bold; "
+            "border: none; background: transparent;"
         )
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.value_label.setFixedHeight(22)
+
         layout.addWidget(self.title_label)
         layout.addWidget(self.value_label)
 
     def set_value(self, value: str, color: str = "#FFFFFF"):
         self.value_label.setText(value)
         self.value_label.setStyleSheet(
-            f"color: {color}; font-size: 16pt; font-weight: bold; border: none; background: transparent;"
+            f"color: {color}; font-size: 12pt; font-weight: bold; "
+            f"border: none; background: transparent;"
         )
 
 
@@ -193,12 +202,15 @@ class MainWindow(QMainWindow):
         self.current_analysis: Optional[CameraAnalysis] = None
         self.current_cxf_measurements: List[CxF3Measurement] = []
         self.measurement_count = 0
+        self.lot_data_list: List[Dict] = []
 
         self._setup_ui()
         self._connect_signals()
         self._apply_style()
         self._refresh_job_tree()
+        self._scan_cameras()
         self.statusBar().showMessage("  Hazir  |  Kamerayi acin veya X-Rite dosyasi ekleyin")
+        logger.info("iColor Control baslatildi")
 
     def _setup_ui(self):
         self.setWindowTitle("iColor Control  |  Endustriyel Renk Kontrol Sistemi")
@@ -223,13 +235,13 @@ class MainWindow(QMainWindow):
         content_splitter.addWidget(left)
         content_splitter.addWidget(center)
         content_splitter.addWidget(right)
-        content_splitter.setSizes([260, 520, 440])
-        content_splitter.setHandleWidth(2)
+        content_splitter.setSizes([240, 500, 380])
+        content_splitter.setHandleWidth(1)
 
-        main_layout.addWidget(content_splitter, stretch=1)
+        main_layout.addWidget(content_splitter, stretch=3)
 
         bottom = self._create_lot_panel()
-        main_layout.addWidget(bottom, stretch=0)
+        main_layout.addWidget(bottom, stretch=1)
 
     def _create_toolbar(self) -> QWidget:
         frame = QFrame()
@@ -309,12 +321,13 @@ class MainWindow(QMainWindow):
         self.job_tree.setHeaderLabels(["Is / Master / Numune"])
         self.job_tree.setRootIsDecorated(True)
         self.job_tree.setAlternatingRowColors(True)
-        self.job_tree.setFixedHeight(200)
-        layout.addWidget(self.job_tree)
+        self.job_tree.setMinimumHeight(120)
+        layout.addWidget(self.job_tree, stretch=1)
 
         info_group = QGroupBox("SECILI DETAY")
         info_layout = QVBoxLayout(info_group)
-        info_layout.setSpacing(4)
+        info_layout.setContentsMargins(4, 10, 4, 4)
+        info_layout.setSpacing(1)
 
         self.info_table = QTableWidget(6, 2)
         self.info_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -322,9 +335,9 @@ class MainWindow(QMainWindow):
         self.info_table.verticalHeader().setVisible(False)
         self.info_table.horizontalHeader().setVisible(False)
         self.info_table.setShowGrid(False)
-        self.info_table.setFixedHeight(150)
-        self.info_table.setColumnWidth(0, 90)
-        self.info_table.setColumnWidth(1, 120)
+        self.info_table.verticalHeader().setDefaultSectionSize(16)
+        self.info_table.setColumnWidth(0, 70)
+        self.info_table.setColumnWidth(1, 100)
 
         info_labels = ["Tip", "Adi", "Musteri", "L*", "a*", "b*"]
         for row, label in enumerate(info_labels):
@@ -335,21 +348,20 @@ class MainWindow(QMainWindow):
             self.info_table.setItem(row, 0, lbl_item)
             val_item = QTableWidgetItem("---")
             val_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            val_item.setFont(QFont("Consolas", 8))
             self.info_table.setItem(row, 1, val_item)
 
         info_layout.addWidget(self.info_table)
         layout.addWidget(info_group)
 
         stats_row = QHBoxLayout()
-        self.stat_jobs = StatCard("Is Sayisi", "0")
-        self.stat_jobs.setFixedHeight(44)
-        self.stat_samples = StatCard("Toplam Numune", "0")
-        self.stat_samples.setFixedHeight(44)
+        self.stat_jobs = StatCard("Is", "0")
+        self.stat_jobs.setFixedHeight(36)
+        self.stat_samples = StatCard("Numune", "0")
+        self.stat_samples.setFixedHeight(36)
         stats_row.addWidget(self.stat_jobs)
         stats_row.addWidget(self.stat_samples)
         layout.addLayout(stats_row)
-
-        layout.addStretch()
         return wrapper
 
     def _create_capture_panel(self) -> QWidget:
@@ -363,46 +375,50 @@ class MainWindow(QMainWindow):
 
         camera_tab = QWidget()
         cam_layout = QVBoxLayout(camera_tab)
-        cam_layout.setSpacing(6)
+        cam_layout.setContentsMargins(4, 4, 4, 4)
+        cam_layout.setSpacing(4)
 
         self.camera_label = QLabel()
-        self.camera_label.setFixedHeight(340)
+        self.camera_label.setMinimumHeight(280)
         self.camera_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.camera_label.setStyleSheet(
-            "background-color: #1A1A1A; border: 2px solid #353535; border-radius: 10px;"
+            "background-color: #1A1A1A; border: 2px solid #353535; border-radius: 8px;"
             "color: #555555; font-size: 10pt;"
         )
         self.camera_label.setText("Kamera kapali")
-        cam_layout.addWidget(self.camera_label)
+        cam_layout.addWidget(self.camera_label, stretch=1)
 
         cam_row = QHBoxLayout()
+        cam_row.setSpacing(4)
         self.btn_open_camera = QPushButton("KAMERAYI AC")
         self.btn_open_camera.setObjectName("btn_open_cam")
-        self.btn_open_camera.setFixedHeight(34)
+        self.btn_open_camera.setFixedHeight(32)
         self.btn_open_camera.setCursor(Qt.CursorShape.PointingHandCursor)
         cam_row.addWidget(self.btn_open_camera)
 
         self.combo_camera = QComboBox()
-        self.combo_camera.setFixedHeight(34)
+        self.combo_camera.setFixedHeight(32)
         cam_row.addWidget(self.combo_camera)
         cam_layout.addLayout(cam_row)
 
         self.btn_capture = QPushButton("SNAP")
         self.btn_capture.setObjectName("btn_capture")
-        self.btn_capture.setFixedHeight(48)
+        self.btn_capture.setFixedHeight(44)
         self.btn_capture.setCursor(Qt.CursorShape.PointingHandCursor)
         cam_layout.addWidget(self.btn_capture)
 
         snap_row = QHBoxLayout()
-        self.snap_swatch = ColorSwatch(64)
+        snap_row.setSpacing(8)
+        self.snap_swatch = ColorSwatch(56)
         snap_row.addWidget(self.snap_swatch)
         snap_info = QVBoxLayout()
+        snap_info.setSpacing(1)
         self.snap_hex = QLabel("RENK: ---")
-        self.snap_hex.setStyleSheet("color: #CCCCCC; font-size: 10pt; font-family: Consolas; border: none; background: transparent;")
+        self.snap_hex.setStyleSheet("color: #CCCCCC; font-size: 9pt; font-family: Consolas; border: none; background: transparent;")
         self.snap_rgb = QLabel("RGB: -,-,-")
-        self.snap_rgb.setStyleSheet("color: #888888; font-size: 8pt; border: none; background: transparent;")
+        self.snap_rgb.setStyleSheet("color: #888888; font-size: 7pt; border: none; background: transparent;")
         self.snap_lab = QLabel("LAB: -,-,-")
-        self.snap_lab.setStyleSheet("color: #888888; font-size: 8pt; border: none; background: transparent;")
+        self.snap_lab.setStyleSheet("color: #888888; font-size: 7pt; border: none; background: transparent;")
         snap_info.addWidget(self.snap_hex)
         snap_info.addWidget(self.snap_rgb)
         snap_info.addWidget(self.snap_lab)
@@ -483,8 +499,8 @@ class MainWindow(QMainWindow):
         wrapper = QWidget()
         wrapper.setObjectName("card")
         layout = QVBoxLayout(wrapper)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
 
         header = SectionHeader("OLCUM SONUCLARI")
         layout.addWidget(header)
@@ -499,37 +515,58 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.stat_a)
         layout.addWidget(self.stat_b)
 
+        layout.addSpacing(4)
+
         self.lot_result = QLabel("")
         self.lot_result.setObjectName("label_lot_result")
-        self.lot_result.setFixedHeight(44)
+        self.lot_result.setFixedHeight(40)
         self.lot_result.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lot_result.setStyleSheet(
             "background-color: #252525; border: 2px solid #353535; border-radius: 8px; "
-            "color: #888888; font-size: 12pt; font-weight: bold;"
+            "color: #888888; font-size: 11pt; font-weight: bold;"
         )
         layout.addWidget(self.lot_result)
 
-        self.barcode_label = QLabel()
-        self.barcode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.barcode_label.setFixedHeight(60)
-        self.barcode_label.setStyleSheet(
-            "background-color: #FFFFFF; border-radius: 6px; padding: 4px;"
+        layout.addSpacing(2)
+
+        barcode_frame = QFrame()
+        barcode_frame.setStyleSheet(
+            "background-color: #FFFFFF; border-radius: 6px;"
         )
-        layout.addWidget(self.barcode_label)
+        barcode_frame.setFixedHeight(36)
+        barcode_layout = QVBoxLayout(barcode_frame)
+        barcode_layout.setContentsMargins(8, 2, 8, 2)
+        self.barcode_label = QLabel("Barkod: Olcum yapin")
+        self.barcode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.barcode_label.setStyleSheet(
+            "color: #333333; font-size: 8pt; font-family: Consolas; "
+            "background: transparent; border: none;"
+        )
+        barcode_layout.addWidget(self.barcode_label)
+        layout.addWidget(barcode_frame)
+
+        layout.addSpacing(4)
 
         detail_group = QGroupBox("DETAYLI SONUCLAR")
+        detail_group.setStyleSheet(
+            "QGroupBox { font-size: 8pt; padding-top: 12px; } "
+            "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; }"
+        )
         detail_layout = QVBoxLayout(detail_group)
+        detail_layout.setContentsMargins(4, 8, 4, 4)
+        detail_layout.setSpacing(2)
+
         self.result_table = QTableWidget(0, 3)
         self.result_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.result_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self.result_table.verticalHeader().setVisible(False)
         self.result_table.setShowGrid(True)
         self.result_table.setAlternatingRowColors(True)
-        self.result_table.setFixedHeight(130)
+        self.result_table.verticalHeader().setDefaultSectionSize(16)
         self.result_table.horizontalHeader().setStretchLastSection(True)
-        self.result_table.setColumnWidth(0, 100)
-        self.result_table.setColumnWidth(1, 120)
-        self.result_table.setColumnWidth(2, 120)
+        self.result_table.setColumnWidth(0, 70)
+        self.result_table.setColumnWidth(1, 80)
+        self.result_table.setColumnWidth(2, 60)
         self.result_table.setHorizontalHeaderLabels(["Parametre", "Deger", "Birim"])
 
         for row, (param, val, unit) in enumerate([
@@ -542,9 +579,9 @@ class MainWindow(QMainWindow):
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled)
                 if col == 0:
                     item.setForeground(QColor("#888888"))
-                    item.setFont(QFont(UI.font_family, 9, QFont.Weight.Bold))
+                    item.setFont(QFont(UI.font_family, 8, QFont.Weight.Bold))
                 else:
-                    item.setFont(QFont("Consolas", 9))
+                    item.setFont(QFont("Consolas", 8))
                 self.result_table.setItem(row, col, item)
 
         detail_layout.addWidget(self.result_table)
@@ -556,7 +593,7 @@ class MainWindow(QMainWindow):
     def _create_lot_panel(self) -> QWidget:
         wrapper = QFrame()
         wrapper.setObjectName("card")
-        wrapper.setFixedHeight(160)
+        wrapper.setMinimumHeight(180)
 
         layout = QVBoxLayout(wrapper)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -569,8 +606,8 @@ class MainWindow(QMainWindow):
 
         self.btn_lot_decision = QPushButton("LOT KARARI UYGULA")
         self.btn_lot_decision.setObjectName("btn_setref")
-        self.btn_lot_decision.setFixedHeight(30)
-        self.btn_lot_decision.setFixedWidth(160)
+        self.btn_lot_decision.setFixedHeight(32)
+        self.btn_lot_decision.setFixedWidth(170)
         header_row.addWidget(self.btn_lot_decision)
         layout.addLayout(header_row)
 
@@ -580,13 +617,12 @@ class MainWindow(QMainWindow):
         self.lot_table.verticalHeader().setVisible(False)
         self.lot_table.setShowGrid(True)
         self.lot_table.setAlternatingRowColors(True)
-        self.lot_table.setFixedHeight(85)
+        self.lot_table.verticalHeader().setDefaultSectionSize(22)
         self.lot_table.setHorizontalHeaderLabels(["Lot", "Ort. DE", "Min DE", "Max DE", "Adet", "Durum"])
         header_view = self.lot_table.horizontalHeader()
+        header_view.setDefaultSectionSize(90)
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in range(1, 6):
-            header_view.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
-        layout.addWidget(self.lot_table)
+        layout.addWidget(self.lot_table, stretch=1)
 
         return wrapper
 
@@ -608,29 +644,64 @@ class MainWindow(QMainWindow):
         from ui.styles.dark_theme import get_dark_stylesheet
         self.setStyleSheet(get_dark_stylesheet())
 
+    def _scan_cameras(self):
+        self.combo_camera.clear()
+        try:
+            available = self.camera.list_devices()
+            if available:
+                for dev_id in available:
+                    self.combo_camera.addItem(f"Kamera {dev_id}", dev_id)
+                logger.info("Kameralar tarandi: %s", available)
+            else:
+                self.combo_camera.addItem("Kamera bulunamadi", -1)
+                logger.warning("Kamera bulunamadi")
+        except Exception as e:
+            self.combo_camera.addItem("Kamera tarama hatasi", -1)
+            logger.error("Kamera tarama hatasi: %s", e)
+
     def _toggle_camera(self):
-        if self.camera.is_active:
+        if self.camera.is_opened:
             self.camera.release()
             self.btn_open_camera.setText("KAMERAYI AC")
             self.btn_open_camera.setObjectName("btn_open_cam")
             self.btn_open_camera.setStyleSheet(self.styleSheet())
             self.camera_label.setText("Kamera kapali")
             self.camera_label.setPixmap(QPixmap())
+            self.statusBar().showMessage("  Kamera kapatildi")
+            logger.info("Kamera kapatildi")
         else:
-            cam_id = self.combo_camera.currentIndex()
-            if self.camera.start(cam_id):
+            cam_id = self.combo_camera.currentData()
+            if cam_id is None or cam_id < 0:
+                cam_id = 0
+                logger.info("Kamera secilmemis, varsayilan device_id=0 kullaniliyor")
+
+            logger.info("Kamera aciliyor: device_id=%d", cam_id)
+            if self.camera.open(cam_id):
                 self.btn_open_camera.setText("KAMERAYI KAPAT")
                 self.btn_open_camera.setObjectName("btn_reset")
                 self.btn_open_camera.setStyleSheet(self.styleSheet())
                 self._update_camera_feed()
+                self.statusBar().showMessage(f"  Kamera acildi (device_id={cam_id})")
+                logger.info("Kamera basariyla acildi: device_id=%d", cam_id)
             else:
-                QMessageBox.warning(self, "Hata", "Kamera acilamadi!")
+                QMessageBox.warning(
+                    self, "Kamera Hata",
+                    f"Kamera acilamadi!\n\n"
+                    f"Device ID: {cam_id}\n"
+                    f"Kontrol edin:\n"
+                    f"- Kamera takili mi?\n"
+                    f"- Baska bir uygulama kullaniyor mu?\n"
+                    f"- Surucu yuklu mu?"
+                )
+                self.statusBar().showMessage(f"  Kamera acilamadi (device_id={cam_id})")
+                logger.error("Kamera acilamadi: device_id=%d", cam_id)
 
     def _update_camera_feed(self):
-        if not self.camera.is_active:
+        if not self.camera.is_opened:
             return
-        frame = self.camera.read_frame()
-        if frame is not None:
+        cam_frame = self.camera.read_frame()
+        if cam_frame is not None:
+            frame = cam_frame.raw_bgr
             h, w, ch = frame.shape
             bytes_per_line = ch * w
             q_img = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888).rgbSwapped()
@@ -644,22 +715,37 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(33, self._update_camera_feed)
 
     def _capture_snapshot(self):
-        frame = self.camera.read_frame() if self.camera.is_active else None
+        cam_frame = self.camera.read_frame() if self.camera.is_opened else None
+        frame = cam_frame.raw_bgr if cam_frame is not None else None
         if frame is None:
             frame = np.random.randint(0, 256, (480, 640, 3), dtype=np.uint8)
 
         analysis = self.color_engine.analyze_surface(frame)
         self.current_analysis = analysis
 
-        r, g, b = analysis.dominant_rgb.r, analysis.dominant_rgb.g, analysis.dominant_rgb.b
-        lab = analysis.dominant_lab
+        lab = analysis.mean_lab
+        from core.color_engine.color_convert import lab_to_rgb_single
+        r, g, b = lab_to_rgb_single(lab.L, lab.a, lab.b)
 
         self.snap_swatch.set_color(r, g, b)
         self.snap_hex.setText(f"RENK: #{r:02X}{g:02X}{b:02X}")
         self.snap_rgb.setText(f"RGB: {r}, {g}, {b}")
         self.snap_lab.setText(f"LAB: {lab.L:.1f}, {lab.a:.1f}, {lab.b:.1f}")
 
-        lch = analysis.dominant_lch
+        lch = LCHColor(
+            L=lab.L,
+            C=(lab.a**2 + lab.b**2)**0.5,
+            H=np.degrees(np.arctan2(lab.b, lab.a)) % 360,
+        )
+
+        if self.reference_lab is None:
+            self._set_reference_from_lab(lab, "Otomatik Referans")
+            self.statusBar().showMessage(
+                f"  Ilk olcum referans olarak ayarlandi  |  "
+                f"LAB=({lab.L:.1f}, {lab.a:.1f}, {lab.b:.1f})"
+            )
+            return
+
         de = self._calc_delta_e(lab)
 
         self._update_stat_cards(de, lab, lch)
@@ -678,7 +764,7 @@ class MainWindow(QMainWindow):
     def _calc_delta_e(self, lab: LabColor) -> float:
         method = self.combo_de.currentData()
         if self.reference_lab is None:
-            return 0.0
+            return -1.0
         return DeltaECalculator.calculate(self.reference_lab, lab, method)
 
     def _update_delta_e_method(self):
@@ -725,6 +811,7 @@ class MainWindow(QMainWindow):
             "color: #888888; font-size: 12pt; font-weight: bold;"
         )
         self.lot_table.setRowCount(0)
+        self.lot_data_list = []
         self.barcode_label.clear()
 
         for row in range(6):
@@ -743,7 +830,7 @@ class MainWindow(QMainWindow):
     def _update_result_table(self, de: float, lab: LabColor, lch: LCHColor):
         values = [
             (f"{lab.L:.2f}", ""), (f"{lab.a:.2f}", ""), (f"{lab.b:.2f}", ""),
-            (f"{lch.C:.2f}", ""), (f"{lch.h:.2f}", ""), (f"{de:.3f}", ""),
+            (f"{lch.C:.2f}", ""), (f"{lch.H:.2f}", ""), (f"{de:.3f}", ""),
         ]
         for row, (val, _) in enumerate(values):
             self.result_table.item(row, 1).setText(val)
@@ -772,26 +859,46 @@ class MainWindow(QMainWindow):
         )
 
     def _update_lot_table(self, de: float):
-        row = self.lot_table.rowCount()
-        self.lot_table.insertRow(row)
-        lot_name = f"LOT-{chr(65 + row)}"
-        values = [lot_name, f"{de:.3f}", f"{de:.3f}", f"{de:.3f}", "1", self._de_category(de)]
-        for col, text in enumerate(values):
-            item = QTableWidgetItem(text)
-            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            if col == 5:
-                cat = text
-                if "Kusursuz" in cat or "Iyi" in cat:
-                    item.setForeground(QColor(UI.success_color))
-                elif "Sinir" in cat:
-                    item.setForeground(QColor(UI.warning_color))
+        self.lot_data_list.append({
+            "de": de,
+            "lab": self.current_analysis.mean_lab if self.current_analysis else None,
+        })
+
+        self.lot_table.setRowCount(0)
+        for i, entry in enumerate(self.lot_data_list):
+            row = self.lot_table.rowCount()
+            self.lot_table.insertRow(row)
+
+            letter = chr(65 + (i % 26))
+            if i >= 26:
+                letter = f"A{chr(65 + (i - 26) % 26)}"
+            lot_name = f"LOT-{letter}"
+
+            de_val = entry["de"]
+            lab = entry["lab"]
+            values = [
+                lot_name,
+                f"{de_val:.3f}",
+                f"{de_val:.3f}",
+                f"{de_val:.3f}",
+                "1",
+                self._de_category(de_val),
+            ]
+            for col, text in enumerate(values):
+                item = QTableWidgetItem(text)
+                item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                if col == 5:
+                    if "Kusursuz" in text or "Iyi" in text:
+                        item.setForeground(QColor(UI.success_color))
+                    elif "Sinir" in text:
+                        item.setForeground(QColor(UI.warning_color))
+                    else:
+                        item.setForeground(QColor(UI.error_color))
+                elif col == 0:
+                    item.setFont(QFont(UI.font_family, 9, QFont.Weight.Bold))
                 else:
-                    item.setForeground(QColor(UI.error_color))
-            elif col == 0:
-                item.setFont(QFont(UI.font_family, 9, QFont.Weight.Bold))
-            else:
-                item.setFont(QFont("Consolas", 9))
-            self.lot_table.setItem(row, col, item)
+                    item.setFont(QFont("Consolas", 9))
+                self.lot_table.setItem(row, col, item)
         self.lot_table.scrollToBottom()
 
     def _update_target_board(self, de: float, lab: LabColor):
@@ -818,16 +925,8 @@ class MainWindow(QMainWindow):
             return
         lot = self._de_category(de)
         code = BarcodeGenerator.generate_codebar(lot, customer="iColor")
-        img_bytes = BarcodeGenerator.create_barcode_image(code, 300, 60)
-        if img_bytes:
-            pixmap = QPixmap()
-            pixmap.loadFromData(QByteArray(img_bytes))
-            scaled = pixmap.scaled(
-                self.barcode_label.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.barcode_label.setPixmap(scaled)
+        de_str = f"{de:.3f}"
+        self.barcode_label.setText(f"||| {code} |||  DE: {de_str}")
 
     @staticmethod
     def _de_category(de: float) -> str:
@@ -932,7 +1031,7 @@ class MainWindow(QMainWindow):
         ))
 
     def _export_to_excel(self):
-        if self.measurement_count == 0 and not self.current_cxf_measurements:
+        if not self.lot_data_list:
             QMessageBox.information(self, "Bilgi", "Kaydedilecek olcum yok.")
             return
 
@@ -950,19 +1049,24 @@ class MainWindow(QMainWindow):
                 master_info = {"L": self.reference_lab.L, "a": self.reference_lab.a, "b": self.reference_lab.b}
 
             samples = []
-            for row in range(self.lot_table.rowCount()):
+            for i, entry in enumerate(self.lot_data_list):
+                de_val = entry["de"]
+                lab = entry["lab"]
+                letter = chr(65 + (i % 26))
+                if i >= 26:
+                    letter = f"A{chr(65 + (i - 26) % 26)}"
                 samples.append({
-                    "name": self.lot_table.item(row, 0).text() if self.lot_table.item(row, 0) else "",
-                    "delta_e": float(self.lot_table.item(row, 1).text()) if self.lot_table.item(row, 1) else 0,
-                    "status": self.lot_table.item(row, 5).text() if self.lot_table.item(row, 5) else "",
-                    "L": self.reference_lab.L if self.reference_lab else 0,
-                    "a": self.reference_lab.a if self.reference_lab else 0,
-                    "b": self.reference_lab.b if self.reference_lab else 0,
+                    "name": f"LOT-{letter}",
+                    "delta_e": de_val,
+                    "status": self._de_category(de_val),
+                    "L": lab.L if lab else 0,
+                    "a": lab.a if lab else 0,
+                    "b": lab.b if lab else 0,
                 })
 
             report = ExcelReport()
             success = report.create_report(
-                filepath=filepath,
+                filepath=path,
                 job_name="iColor Control Raporu",
                 customer="Genel",
                 master_info=master_info,
