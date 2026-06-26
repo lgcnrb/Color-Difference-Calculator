@@ -4,37 +4,45 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QByteArray, QBuffer, QIODevice
 from PyQt6.QtGui import QImage, QPixmap, QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QTabWidget, QPushButton, QComboBox, QSpinBox, QCheckBox, QLabel,
     QTableWidget, QTableWidgetItem, QGroupBox, QFrame, QLineEdit,
     QFileDialog, QMessageBox, QStatusBar, QHeaderView, QSplitter,
-    QAbstractItemView, QScrollArea, QSizePolicy, QGraphicsDropShadowEffect,
+    QAbstractItemView, QScrollArea, QSizePolicy, QDialog,
+    QDialogButtonBox, QFormLayout, QTextEdit, QTreeWidget, QTreeWidgetItem,
 )
 
 from config.settings import UI, CAMERA, COLOR_ENGINE, DELTA_METHODS, COLOR_SPACES, EXPORT_DIR
 from core.camera.manager import CameraManager
 from core.color_engine.engine import ColorEngine
 from core.spectrophotometer.parser import SpectrophotometerParser
+from core.spectrophotometer.cxf3_parser import CxF3Parser, CxF3Measurement
+from core.spectrophotometer.watcher import FileWatcher
 from core.lotting.engine import DeltaECalculator, LottingEngine
 from core.models.color_data import (
     LabColor, LCHColor, RGBColor, SpectralReading, CameraAnalysis,
     DeltaEResult, LottingResult, LotDecision, MeasurementSource,
     MeasurementRecord, MasterColor,
 )
+from core.job.manager import JobManager, Job, Master, Sample, DynamicField
+from core.analysis.spectral_graph import SpectralGraph
+from core.analysis.color_plot import ColorPlot
+from core.analysis.metamerism import MetamerismChecker, MetamerismReport
+from core.analysis.tolerance import ToleranceEngine
+from core.export.excel_report import ExcelReport
+from core.export.barcode import BarcodeGenerator
 
 logger = logging.getLogger(__name__)
 
 
-# ─── Color Swatch ───────────────────────────────────────────────────────────
 class ColorSwatch(QLabel):
-    """Rounded color swatch with hex label."""
     def __init__(self, size: int = 64, parent=None):
         super().__init__(parent)
         self.setFixedSize(size, size)
@@ -60,28 +68,22 @@ class ColorSwatch(QLabel):
         self.set_color(r, g, b)
 
 
-# ─── Stat Card ──────────────────────────────────────────────────────────────
 class StatCard(QFrame):
-    """Compact stat card with title + value."""
     def __init__(self, title: str, value: str = "---", parent=None):
         super().__init__(parent)
         self.setObjectName("card")
         self.setFixedHeight(56)
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 6, 12, 6)
         layout.setSpacing(2)
-
         self.title_label = QLabel(title)
         self.title_label.setStyleSheet("color: #888888; font-size: 8pt; border: none; background: transparent;")
         self.title_label.setFixedHeight(16)
-
         self.value_label = QLabel(value)
         self.value_label.setStyleSheet(
             "color: #FFFFFF; font-size: 16pt; font-weight: bold; border: none; background: transparent;"
         )
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-
         layout.addWidget(self.title_label)
         layout.addWidget(self.value_label)
 
@@ -92,74 +94,143 @@ class StatCard(QFrame):
         )
 
 
-# ─── Section Header ─────────────────────────────────────────────────────────
 class SectionHeader(QLabel):
-    """Bold section header with underline."""
     def __init__(self, text: str, parent=None):
         super().__init__(text, parent)
         self.setObjectName("label_section")
         self.setFixedHeight(24)
 
 
-# ─── Main Window ────────────────────────────────────────────────────────────
+class JobDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Yeni Is (Job) Olustur")
+        self.setMinimumWidth(400)
+        layout = QFormLayout(self)
+
+        self.name_edit = QLineEdit()
+        self.customer_edit = QLineEdit()
+        self.season_edit = QLineEdit()
+        self.desc_edit = QTextEdit()
+        self.desc_edit.setFixedHeight(60)
+
+        layout.addRow("Is Adi:", self.name_edit)
+        layout.addRow("Musteri:", self.customer_edit)
+        layout.addRow("Sezon:", self.season_edit)
+        layout.addRow("Aciklama:", self.desc_edit)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+
+class MasterDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Master Renk Ekle")
+        self.setMinimumWidth(400)
+        layout = QFormLayout(self)
+
+        self.name_edit = QLineEdit()
+        self.l_edit = QLineEdit("50.0")
+        self.a_edit = QLineEdit("0.0")
+        self.b_edit = QLineEdit("0.0")
+        self.tolerans_edit = QLineEdit("1.0")
+        self.pantone_edit = QLineEdit()
+        self.fabric_edit = QLineEdit()
+
+        layout.addRow("Master Adi:", self.name_edit)
+        layout.addRow("L*:", self.l_edit)
+        layout.addRow("a*:", self.a_edit)
+        layout.addRow("b*:", self.b_edit)
+        layout.addRow("Tolerans DE:", self.tolerans_edit)
+        layout.addRow("Pantone:", self.pantone_edit)
+        layout.addRow("Kumas Tipi:", self.fabric_edit)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+
+class DynamicFieldDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Dinamik Alan Ekle")
+        self.setMinimumWidth(350)
+        layout = QFormLayout(self)
+
+        self.key_edit = QLineEdit()
+        self.label_edit = QLineEdit()
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(["Metin", "Sayi", "Tarih", "Secim"])
+
+        layout.addRow("Anahtar:", self.key_edit)
+        layout.addRow("Gosterim Adi:", self.label_edit)
+        layout.addRow("Tip:", self.type_combo)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.camera = CameraManager()
         self.color_engine = ColorEngine()
         self.parser = SpectrophotometerParser()
+        self.job_manager = JobManager()
+        self.file_watcher: Optional[FileWatcher] = None
+        self.metamerism_checker = MetamerismChecker()
 
         self.reference_lab: Optional[LabColor] = None
         self.reference_lch: Optional[LCHColor] = None
         self.reference_rgb: Optional[RGBColor] = None
         self.current_reading: Optional[SpectralReading] = None
         self.current_analysis: Optional[CameraAnalysis] = None
+        self.current_cxf_measurements: List[CxF3Measurement] = []
         self.measurement_count = 0
 
         self._setup_ui()
         self._connect_signals()
         self._apply_style()
-        self.statusBar().showMessage("  Hazir  |  Kamerayi acin ve olcum yapin")
+        self._refresh_job_tree()
+        self.statusBar().showMessage("  Hazir  |  Kamerayi acin veya X-Rite dosyasi ekleyin")
 
-    # ── UI Setup ─────────────────────────────────────────────────────────────
     def _setup_ui(self):
-        self.setWindowTitle("iColor Control  |  Hibrit Renk Kontrol Sistemi")
-        self.setMinimumSize(1280, 740)
-        self.resize(1440, 840)
+        self.setWindowTitle("iColor Control  |  Endustriyel Renk Kontrol Sistemi")
+        self.setMinimumSize(1400, 800)
+        self.resize(1600, 900)
 
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(6, 6, 6, 6)
+        main_layout.setSpacing(6)
 
-        # Top toolbar
         toolbar = self._create_toolbar()
         main_layout.addWidget(toolbar)
 
-        # Main content: 3-panel splitter
         content_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left: Reference
-        left = self._create_reference_panel()
-        # Center: Capture
+        left = self._create_job_panel()
         center = self._create_capture_panel()
-        # Right: Results
         right = self._create_result_panel()
 
         content_splitter.addWidget(left)
         content_splitter.addWidget(center)
         content_splitter.addWidget(right)
-        content_splitter.setSizes([280, 520, 440])
+        content_splitter.setSizes([260, 520, 440])
         content_splitter.setHandleWidth(2)
 
         main_layout.addWidget(content_splitter, stretch=1)
 
-        # Bottom: Lot Grouping
         bottom = self._create_lot_panel()
         main_layout.addWidget(bottom, stretch=0)
 
-    # ── Toolbar ──────────────────────────────────────────────────────────────
     def _create_toolbar(self) -> QWidget:
         frame = QFrame()
         frame.setObjectName("card")
@@ -168,7 +239,6 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(12, 6, 12, 6)
         layout.setSpacing(8)
 
-        # Logo
         logo = QLabel("iColor Control")
         logo.setStyleSheet(
             "color: #1A7AE8; font-size: 14pt; font-weight: bold; "
@@ -180,26 +250,27 @@ class MainWindow(QMainWindow):
         sep.setStyleSheet("color: #454545; font-size: 14pt; border: none; background: transparent;")
         layout.addWidget(sep)
 
-        subtitle = QLabel("Hibrit Renk Kontrol Sistemi")
-        subtitle.setStyleSheet(
-            "color: #888888; font-size: 9pt; border: none; background: transparent;"
-        )
+        subtitle = QLabel("Endustriyel Renk Kontrol Sistemi  v2.0")
+        subtitle.setStyleSheet("color: #888888; font-size: 9pt; border: none; background: transparent;")
         layout.addWidget(subtitle)
 
         layout.addStretch()
 
-        # Delta E method
-        lbl_de = QLabel("Delta E Yontemi:")
+        lbl_de = QLabel("Delta E:")
         lbl_de.setStyleSheet("color: #888888; font-size: 9pt; border: none; background: transparent;")
         layout.addWidget(lbl_de)
 
         self.combo_de = QComboBox()
         for key, label in DELTA_METHODS.display_names().items():
             self.combo_de.addItem(label, key)
-        self.combo_de.setFixedWidth(120)
+        self.combo_de.setFixedWidth(110)
         layout.addWidget(self.combo_de)
 
-        # Save button
+        self.btn_watch_dir = QPushButton("  Watch Klasoru Sec  ")
+        self.btn_watch_dir.setObjectName("btn_import")
+        self.btn_watch_dir.setFixedHeight(32)
+        layout.addWidget(self.btn_watch_dir)
+
         self.btn_save = QPushButton("  Excel Kaydet  ")
         self.btn_save.setObjectName("btn_save")
         self.btn_save.setFixedHeight(32)
@@ -207,220 +278,217 @@ class MainWindow(QMainWindow):
 
         return frame
 
-    # ── Reference Panel (Left) ───────────────────────────────────────────────
-    def _create_reference_panel(self) -> QWidget:
+    def _create_job_panel(self) -> QWidget:
         wrapper = QWidget()
         wrapper.setObjectName("card")
         layout = QVBoxLayout(wrapper)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
-        header = SectionHeader("REFERANS RENK")
+        header = SectionHeader("IS YONETIMI")
         layout.addWidget(header)
 
-        # Swatch
-        swatch_row = QHBoxLayout()
-        swatch_row.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self.ref_swatch = ColorSwatch(96)
-        swatch_row.addWidget(self.ref_swatch)
-        layout.addLayout(swatch_row)
+        btn_row = QHBoxLayout()
+        self.btn_new_job = QPushButton("+ YENI IS")
+        self.btn_new_job.setObjectName("btn_setref")
+        self.btn_new_job.setFixedHeight(30)
+        btn_row.addWidget(self.btn_new_job)
 
-        # Hex value
-        self.ref_hex = QLabel("---")
-        self.ref_hex.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.ref_hex.setStyleSheet(
-            "color: #AAAAAA; font-size: 11pt; font-family: Consolas, monospace; "
-            "border: none; background: transparent;"
-        )
-        self.ref_hex.setFixedHeight(20)
-        layout.addWidget(self.ref_hex)
+        self.btn_new_master = QPushButton("+ MASTER")
+        self.btn_new_master.setObjectName("btn_open_cam")
+        self.btn_new_master.setFixedHeight(30)
+        btn_row.addWidget(self.btn_new_master)
+        layout.addLayout(btn_row)
 
-        # Color info table
-        self.ref_table = QTableWidget(3, 2)
-        self.ref_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.ref_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self.ref_table.verticalHeader().setVisible(False)
-        self.ref_table.horizontalHeader().setVisible(False)
-        self.ref_table.setShowGrid(False)
-        self.ref_table.setFixedHeight(90)
-        self.ref_table.setColumnWidth(0, 70)
-        self.ref_table.setColumnWidth(1, 100)
+        self.btn_add_dynamic = QPushButton("+ DINAMIK ALAN")
+        self.btn_add_dynamic.setObjectName("btn_import")
+        self.btn_add_dynamic.setFixedHeight(28)
+        layout.addWidget(self.btn_add_dynamic)
 
-        for row, (label, key) in enumerate([("L*", "L"), ("a*", "a"), ("b*", "b")]):
+        self.job_tree = QTreeWidget()
+        self.job_tree.setHeaderLabels(["Is / Master / Numune"])
+        self.job_tree.setRootIsDecorated(True)
+        self.job_tree.setAlternatingRowColors(True)
+        self.job_tree.setFixedHeight(200)
+        layout.addWidget(self.job_tree)
+
+        info_group = QGroupBox("SECILI DETAY")
+        info_layout = QVBoxLayout(info_group)
+        info_layout.setSpacing(4)
+
+        self.info_table = QTableWidget(6, 2)
+        self.info_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.info_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.info_table.verticalHeader().setVisible(False)
+        self.info_table.horizontalHeader().setVisible(False)
+        self.info_table.setShowGrid(False)
+        self.info_table.setFixedHeight(150)
+        self.info_table.setColumnWidth(0, 90)
+        self.info_table.setColumnWidth(1, 120)
+
+        info_labels = ["Tip", "Adi", "Musteri", "L*", "a*", "b*"]
+        for row, label in enumerate(info_labels):
             lbl_item = QTableWidgetItem(label)
             lbl_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             lbl_item.setForeground(QColor("#888888"))
-            lbl_item.setFont(QFont(UI.font_family, 9, QFont.Weight.Bold))
-            self.ref_table.setItem(row, 0, lbl_item)
-
+            lbl_item.setFont(QFont(UI.font_family, 8, QFont.Weight.Bold))
+            self.info_table.setItem(row, 0, lbl_item)
             val_item = QTableWidgetItem("---")
             val_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            val_item.setFont(QFont("Consolas", 10))
-            self.ref_table.setItem(row, 1, val_item)
+            self.info_table.setItem(row, 1, val_item)
 
-        layout.addWidget(self.ref_table)
+        info_layout.addWidget(self.info_table)
+        layout.addWidget(info_group)
 
-        # Buttons
-        btn_row = QHBoxLayout()
-        self.btn_set_reference = QPushButton("REFERANS OLARAK AYARLA")
-        self.btn_set_reference.setObjectName("btn_setref")
-        self.btn_set_reference.setFixedHeight(36)
-        self.btn_set_reference.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_row.addWidget(self.btn_set_reference)
-
-        self.btn_reset = QPushButton("SIFIRLA")
-        self.btn_reset.setObjectName("btn_reset")
-        self.btn_reset.setFixedHeight(36)
-        self.btn_reset.setFixedWidth(70)
-        self.btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_row.addWidget(self.btn_reset)
-
-        layout.addLayout(btn_row)
-
-        # Import section
-        import_group = QGroupBox("SPEKTROFOTOMETRE VERISI ICI")
-        import_layout = QVBoxLayout(import_group)
-        import_layout.setSpacing(6)
-
-        self.entry_import = QLineEdit()
-        self.entry_import.setPlaceholderText("X-Rite dosya yolu...")
-        import_layout.addWidget(self.entry_import)
-
-        imp_row = QHBoxLayout()
-        self.btn_import = QPushButton("DOSYA SEC")
-        self.btn_import.setObjectName("btn_import")
-        self.btn_import.setCursor(Qt.CursorShape.PointingHandCursor)
-        imp_row.addWidget(self.btn_import)
-
-        self.btn_load_data = QPushButton("YUKLE")
-        self.btn_load_data.setObjectName("btn_capture")
-        self.btn_load_data.setFixedWidth(70)
-        self.btn_load_data.setCursor(Qt.CursorShape.PointingHandCursor)
-        imp_row.addWidget(self.btn_load_data)
-
-        import_layout.addLayout(imp_row)
-        layout.addWidget(import_group)
+        stats_row = QHBoxLayout()
+        self.stat_jobs = StatCard("Is Sayisi", "0")
+        self.stat_jobs.setFixedHeight(44)
+        self.stat_samples = StatCard("Toplam Numune", "0")
+        self.stat_samples.setFixedHeight(44)
+        stats_row.addWidget(self.stat_jobs)
+        stats_row.addWidget(self.stat_samples)
+        layout.addLayout(stats_row)
 
         layout.addStretch()
-
         return wrapper
 
-    # ── Capture Panel (Center) ───────────────────────────────────────────────
     def _create_capture_panel(self) -> QWidget:
         wrapper = QWidget()
         wrapper.setObjectName("card")
         layout = QVBoxLayout(wrapper)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
-        header = SectionHeader("KAMERA GORUNTUSU")
-        layout.addWidget(header)
+        tabs = QTabWidget()
 
-        # Camera view
+        camera_tab = QWidget()
+        cam_layout = QVBoxLayout(camera_tab)
+        cam_layout.setSpacing(6)
+
         self.camera_label = QLabel()
-        self.camera_label.setFixedHeight(360)
+        self.camera_label.setFixedHeight(340)
         self.camera_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.camera_label.setStyleSheet(
             "background-color: #1A1A1A; border: 2px solid #353535; border-radius: 10px;"
             "color: #555555; font-size: 10pt;"
         )
         self.camera_label.setText("Kamera kapali")
-        layout.addWidget(self.camera_label)
+        cam_layout.addWidget(self.camera_label)
 
-        # Camera controls
         cam_row = QHBoxLayout()
-        cam_row.setSpacing(8)
-
         self.btn_open_camera = QPushButton("KAMERAYI AC")
         self.btn_open_camera.setObjectName("btn_open_cam")
-        self.btn_open_camera.setFixedHeight(36)
+        self.btn_open_camera.setFixedHeight(34)
         self.btn_open_camera.setCursor(Qt.CursorShape.PointingHandCursor)
         cam_row.addWidget(self.btn_open_camera)
 
         self.combo_camera = QComboBox()
-        self.combo_camera.setFixedHeight(36)
-        self.combo_camera.setPlaceholderText("Kamera secin...")
+        self.combo_camera.setFixedHeight(34)
         cam_row.addWidget(self.combo_camera)
+        cam_layout.addLayout(cam_row)
 
-        layout.addLayout(cam_row)
-
-        # Capture button
         self.btn_capture = QPushButton("SNAP")
         self.btn_capture.setObjectName("btn_capture")
-        self.btn_capture.setFixedHeight(52)
+        self.btn_capture.setFixedHeight(48)
         self.btn_capture.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_capture.setEnabled(True)
-        layout.addWidget(self.btn_capture)
+        cam_layout.addWidget(self.btn_capture)
 
-        # Captured color display
-        snap_color_row = QHBoxLayout()
-        snap_color_row.setSpacing(12)
-
-        self.snap_swatch = ColorSwatch(72)
-        snap_color_row.addWidget(self.snap_swatch)
-
+        snap_row = QHBoxLayout()
+        self.snap_swatch = ColorSwatch(64)
+        snap_row.addWidget(self.snap_swatch)
         snap_info = QVBoxLayout()
-        snap_info.setSpacing(2)
-
         self.snap_hex = QLabel("RENK: ---")
-        self.snap_hex.setStyleSheet(
-            "color: #CCCCCC; font-size: 11pt; font-family: Consolas, monospace; "
-            "border: none; background: transparent;"
-        )
-
+        self.snap_hex.setStyleSheet("color: #CCCCCC; font-size: 10pt; font-family: Consolas; border: none; background: transparent;")
         self.snap_rgb = QLabel("RGB: -,-,-")
         self.snap_rgb.setStyleSheet("color: #888888; font-size: 8pt; border: none; background: transparent;")
-
         self.snap_lab = QLabel("LAB: -,-,-")
         self.snap_lab.setStyleSheet("color: #888888; font-size: 8pt; border: none; background: transparent;")
-
         snap_info.addWidget(self.snap_hex)
         snap_info.addWidget(self.snap_rgb)
         snap_info.addWidget(self.snap_lab)
+        snap_row.addLayout(snap_info)
+        snap_row.addStretch()
+        cam_layout.addLayout(snap_row)
 
-        snap_color_row.addLayout(snap_info)
-        snap_color_row.addStretch()
+        tabs.addTab(camera_tab, "Kamera")
 
-        layout.addLayout(snap_color_row)
+        import_tab = QWidget()
+        imp_layout = QVBoxLayout(import_tab)
+        imp_layout.setSpacing(6)
 
-        # Settings row
-        settings_row = QHBoxLayout()
-        settings_row.setSpacing(10)
+        self.entry_import = QLineEdit()
+        self.entry_import.setPlaceholderText("X-Rite dosya yolu (.cxf, .csv, .txt, .xml)...")
+        imp_layout.addWidget(self.entry_import)
 
-        self.chk_auto = QCheckBox("Otomatik")
-        self.chk_auto.setChecked(True)
-        settings_row.addWidget(self.chk_auto)
+        imp_btn_row = QHBoxLayout()
+        self.btn_import = QPushButton("DOSYA SEC")
+        self.btn_import.setObjectName("btn_import")
+        imp_btn_row.addWidget(self.btn_import)
+        self.btn_load_data = QPushButton("YUKLE")
+        self.btn_load_data.setObjectName("btn_capture")
+        self.btn_load_data.setFixedWidth(80)
+        imp_btn_row.addWidget(self.btn_load_data)
+        imp_layout.addLayout(imp_btn_row)
 
-        settings_row.addStretch()
+        self.cxf_info = QLabel("CxF3 Dosya Bilgisi: -")
+        self.cxf_info.setStyleSheet("color: #888888; font-size: 8pt; border: none; background: transparent;")
+        imp_layout.addWidget(self.cxf_info)
 
-        lbl_res = QLabel("Cozunurluk:")
-        lbl_res.setStyleSheet("color: #888888; font-size: 9pt; border: none; background: transparent;")
-        settings_row.addWidget(lbl_res)
+        self.watch_status = QLabel("Watch: Kapali")
+        self.watch_status.setStyleSheet("color: #888888; font-size: 8pt; border: none; background: transparent;")
+        imp_layout.addWidget(self.watch_status)
 
-        self.combo_resolution = QComboBox()
-        self.combo_resolution.addItems(["Dusuk", "Normal", "Yuksek"])
-        self.combo_resolution.setCurrentIndex(1)
-        self.combo_resolution.setFixedWidth(90)
-        settings_row.addWidget(self.combo_resolution)
+        imp_layout.addStretch()
+        tabs.addTab(import_tab, "Spektrofotometre")
 
-        layout.addLayout(settings_row)
+        spectral_tab = QWidget()
+        spec_layout = QVBoxLayout(spectral_tab)
+        self.spectral_plot_label = QLabel("Spektral egriler yuklenmedi")
+        self.spectral_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.spectral_plot_label.setStyleSheet(
+            "background-color: #1A1A1A; border: 2px solid #353535; border-radius: 8px; "
+            "color: #555555; font-size: 9pt;"
+        )
+        self.spectral_plot_label.setMinimumHeight(280)
+        spec_layout.addWidget(self.spectral_plot_label)
+        tabs.addTab(spectral_tab, "Spektral Egriler")
 
-        layout.addStretch()
+        colorplot_tab = QWidget()
+        cp_layout = QVBoxLayout(colorplot_tab)
+        self.color_plot_label = QLabel("Renk sapma grafigi yuklenmedi")
+        self.color_plot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.color_plot_label.setStyleSheet(
+            "background-color: #1A1A1A; border: 2px solid #353535; border-radius: 8px; "
+            "color: #555555; font-size: 9pt;"
+        )
+        self.color_plot_label.setMinimumHeight(280)
+        cp_layout.addWidget(self.color_plot_label)
+        tabs.addTab(colorplot_tab, "Target Board")
 
+        metamerism_tab = QWidget()
+        met_layout = QVBoxLayout(metamerism_tab)
+        self.metamerism_table = QTableWidget(0, 4)
+        self.metamerism_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.metamerism_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.metamerism_table.verticalHeader().setVisible(False)
+        self.metamerism_table.setHorizontalHeaderLabels(["Isik Kaynagi", "Delta E", "Durum", "Uyari"])
+        self.metamerism_table.horizontalHeader().setStretchLastSection(True)
+        met_layout.addWidget(self.metamerism_table)
+        tabs.addTab(metamerism_tab, "Metamerizm")
+
+        layout.addWidget(tabs)
         return wrapper
 
-    # ── Result Panel (Right) ─────────────────────────────────────────────────
     def _create_result_panel(self) -> QWidget:
         wrapper = QWidget()
         wrapper.setObjectName("card")
         layout = QVBoxLayout(wrapper)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
         header = SectionHeader("OLCUM SONUCLARI")
         layout.addWidget(header)
 
-        # Stat cards
         self.stat_de = StatCard("DELTA E (CIEDE 2000)", "---")
         self.stat_l = StatCard("L* (Parlaklik)", "---")
         self.stat_a = StatCard("a* (Kirmizi-Yesil)", "---")
@@ -431,7 +499,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.stat_a)
         layout.addWidget(self.stat_b)
 
-        # Lot decision
         self.lot_result = QLabel("")
         self.lot_result.setObjectName("label_lot_result")
         self.lot_result.setFixedHeight(44)
@@ -442,11 +509,16 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self.lot_result)
 
-        # Detail section
+        self.barcode_label = QLabel()
+        self.barcode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.barcode_label.setFixedHeight(60)
+        self.barcode_label.setStyleSheet(
+            "background-color: #FFFFFF; border-radius: 6px; padding: 4px;"
+        )
+        layout.addWidget(self.barcode_label)
+
         detail_group = QGroupBox("DETAYLI SONUCLAR")
         detail_layout = QVBoxLayout(detail_group)
-        detail_layout.setSpacing(4)
-
         self.result_table = QTableWidget(0, 3)
         self.result_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.result_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -458,16 +530,11 @@ class MainWindow(QMainWindow):
         self.result_table.setColumnWidth(0, 100)
         self.result_table.setColumnWidth(1, 120)
         self.result_table.setColumnWidth(2, 120)
-
         self.result_table.setHorizontalHeaderLabels(["Parametre", "Deger", "Birim"])
 
         for row, (param, val, unit) in enumerate([
-            ("L*", "---", ""),
-            ("a*", "---", ""),
-            ("b*", "---", ""),
-            ("C*", "---", ""),
-            ("h", "---", "derece"),
-            ("Delta E", "---", ""),
+            ("L*", "---", ""), ("a*", "---", ""), ("b*", "---", ""),
+            ("C*", "---", ""), ("h", "---", "derece"), ("Delta E", "---", ""),
         ]):
             self.result_table.insertRow(row)
             for col, text in enumerate([param, val, unit]):
@@ -484,10 +551,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(detail_group)
 
         layout.addStretch()
-
         return wrapper
 
-    # ── Lot Panel (Bottom) ───────────────────────────────────────────────────
     def _create_lot_panel(self) -> QWidget:
         wrapper = QFrame()
         wrapper.setObjectName("card")
@@ -498,20 +563,15 @@ class MainWindow(QMainWindow):
         layout.setSpacing(6)
 
         header_row = QHBoxLayout()
-        header_row.setSpacing(8)
-
         lbl = SectionHeader("LOT GRUPLANDIRMA")
         header_row.addWidget(lbl)
-
         header_row.addStretch()
 
         self.btn_lot_decision = QPushButton("LOT KARARI UYGULA")
         self.btn_lot_decision.setObjectName("btn_setref")
         self.btn_lot_decision.setFixedHeight(30)
         self.btn_lot_decision.setFixedWidth(160)
-        self.btn_lot_decision.setCursor(Qt.CursorShape.PointingHandCursor)
         header_row.addWidget(self.btn_lot_decision)
-
         layout.addLayout(header_row)
 
         self.lot_table = QTableWidget(0, 6)
@@ -521,38 +581,33 @@ class MainWindow(QMainWindow):
         self.lot_table.setShowGrid(True)
         self.lot_table.setAlternatingRowColors(True)
         self.lot_table.setFixedHeight(85)
-
-        self.lot_table.setHorizontalHeaderLabels(
-            ["Lot", "Ort. DE", "Min DE", "Max DE", "Adet", "Durum"]
-        )
-
+        self.lot_table.setHorizontalHeaderLabels(["Lot", "Ort. DE", "Min DE", "Max DE", "Adet", "Durum"])
         header_view = self.lot_table.horizontalHeader()
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for col in range(1, 6):
             header_view.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
-
         layout.addWidget(self.lot_table)
 
         return wrapper
 
-    # ── Signals ──────────────────────────────────────────────────────────────
     def _connect_signals(self):
         self.btn_open_camera.clicked.connect(self._toggle_camera)
         self.btn_capture.clicked.connect(self._capture_snapshot)
-        self.btn_set_reference.clicked.connect(self._set_reference)
-        self.btn_reset.clicked.connect(self._reset_reference)
         self.btn_import.clicked.connect(self._browse_file)
         self.btn_load_data.clicked.connect(self._import_spectro_data)
         self.btn_save.clicked.connect(self._export_to_excel)
         self.btn_lot_decision.clicked.connect(self._run_lot_decision)
         self.combo_de.currentIndexChanged.connect(self._update_delta_e_method)
+        self.btn_new_job.clicked.connect(self._create_new_job)
+        self.btn_new_master.clicked.connect(self._add_master)
+        self.btn_add_dynamic.clicked.connect(self._add_dynamic_field)
+        self.btn_watch_dir.clicked.connect(self._select_watch_dir)
+        self.job_tree.itemClicked.connect(self._on_tree_item_clicked)
 
-    # ── Style ────────────────────────────────────────────────────────────────
     def _apply_style(self):
         from ui.styles.dark_theme import get_dark_stylesheet
         self.setStyleSheet(get_dark_stylesheet())
 
-    # ── Camera ───────────────────────────────────────────────────────────────
     def _toggle_camera(self):
         if self.camera.is_active:
             self.camera.release()
@@ -561,7 +616,6 @@ class MainWindow(QMainWindow):
             self.btn_open_camera.setStyleSheet(self.styleSheet())
             self.camera_label.setText("Kamera kapali")
             self.camera_label.setPixmap(QPixmap())
-            self.statusBar().showMessage("  Kamera kapatildi")
         else:
             cam_id = self.combo_camera.currentIndex()
             if self.camera.start(cam_id):
@@ -569,7 +623,6 @@ class MainWindow(QMainWindow):
                 self.btn_open_camera.setObjectName("btn_reset")
                 self.btn_open_camera.setStyleSheet(self.styleSheet())
                 self._update_camera_feed()
-                self.statusBar().showMessage("  Kamera acildi")
             else:
                 QMessageBox.warning(self, "Hata", "Kamera acilamadi!")
 
@@ -590,7 +643,6 @@ class MainWindow(QMainWindow):
             self.camera_label.setPixmap(scaled)
         QTimer.singleShot(33, self._update_camera_feed)
 
-    # ── Capture ──────────────────────────────────────────────────────────────
     def _capture_snapshot(self):
         frame = self.camera.read_frame() if self.camera.is_active else None
         if frame is None:
@@ -602,13 +654,11 @@ class MainWindow(QMainWindow):
         r, g, b = analysis.dominant_rgb.r, analysis.dominant_rgb.g, analysis.dominant_rgb.b
         lab = analysis.dominant_lab
 
-        # Update capture panel
         self.snap_swatch.set_color(r, g, b)
         self.snap_hex.setText(f"RENK: #{r:02X}{g:02X}{b:02X}")
         self.snap_rgb.setText(f"RGB: {r}, {g}, {b}")
         self.snap_lab.setText(f"LAB: {lab.L:.1f}, {lab.a:.1f}, {lab.b:.1f}")
 
-        # Update result panel
         lch = analysis.dominant_lch
         de = self._calc_delta_e(lab)
 
@@ -616,16 +666,15 @@ class MainWindow(QMainWindow):
         self._update_result_table(de, lab, lch)
         self._update_lot_decision(de)
         self._update_lot_table(de)
+        self._update_target_board(de, lab)
+        self._generate_barcode(de)
 
         self.measurement_count += 1
         self.statusBar().showMessage(
-            f"  Olcum #{self.measurement_count}  |  "
-            f"DE={de:.3f}  |  "
-            f"LAB=({lab.L:.1f}, {lab.a:.1f}, {lab.b:.1f})  |  "
-            f"Durum: {self._de_category(de)}"
+            f"  Olcum #{self.measurement_count}  |  DE={de:.3f}  |  "
+            f"LAB=({lab.L:.1f}, {lab.a:.1f}, {lab.b:.1f})  |  {self._de_category(de)}"
         )
 
-    # ── Delta E ──────────────────────────────────────────────────────────────
     def _calc_delta_e(self, lab: LabColor) -> float:
         method = self.combo_de.currentData()
         if self.reference_lab is None:
@@ -637,39 +686,34 @@ class MainWindow(QMainWindow):
             de = self._calc_delta_e(self.current_analysis.dominant_lab)
             self.stat_de.set_value(f"{de:.3f}", UI.error_color if de > 1.0 else UI.success_color)
 
-    # ── Reference ────────────────────────────────────────────────────────────
+    def _set_reference_from_lab(self, lab: LabColor, name: str = "Referans"):
+        self.reference_lab = lab
+        self.reference_lch = LCHColor(
+            L=lab.L,
+            C=(lab.a**2 + lab.b**2)**0.5,
+            H=np.degrees(np.arctan2(lab.b, lab.a)) % 360,
+        )
+        from core.color_engine.color_convert import lab_to_rgb_single
+        r, g, b = lab_to_rgb_single(lab.L, lab.a, lab.b)
+        self.reference_rgb = RGBColor(R=r, G=g, B=b)
+
+        self.info_table.item(0, 1).setText("Master")
+        self.info_table.item(1, 1).setText(name)
+        self.info_table.item(3, 1).setText(f"{lab.L:.2f}")
+        self.info_table.item(4, 1).setText(f"{lab.a:.2f}")
+        self.info_table.item(5, 1).setText(f"{lab.b:.2f}")
+
     def _set_reference(self):
         if self.current_analysis is None:
             QMessageBox.information(self, "Bilgi", "Once bir olcum yapin (SNAP).")
             return
-
         lab = self.current_analysis.dominant_lab
-        self.reference_lab = lab
-        self.reference_lch = self.current_analysis.dominant_lch
-        self.reference_rgb = self.current_analysis.dominant_rgb
-
-        r, g, b = self.reference_rgb.r, self.reference_rgb.g, self.reference_rgb.b
-        self.ref_swatch.set_color(r, g, b)
-        self.ref_hex.setText(f"#{r:02X}{g:02X}{b:02X}")
-
-        self.ref_table.item(0, 1).setText(f"{lab.L:.2f}")
-        self.ref_table.item(1, 1).setText(f"{lab.a:.2f}")
-        self.ref_table.item(2, 1).setText(f"{lab.b:.2f}")
-
-        self.statusBar().showMessage(f"  Referans ayarlandi  |  LAB=({lab.L:.2f}, {lab.a:.2f}, {lab.b:.2f})")
+        self._set_reference_from_lab(lab, "Kamera Referansi")
 
     def _reset_reference(self):
         self.reference_lab = None
         self.reference_lch = None
         self.reference_rgb = None
-
-        self.ref_swatch.setStyleSheet(
-            "background-color: #2D2D2D; border: 2px solid #454545; border-radius: 10px;"
-        )
-        self.ref_hex.setText("---")
-
-        for row in range(3):
-            self.ref_table.item(row, 1).setText("---")
 
         self.stat_de.set_value("---", "#FFFFFF")
         self.stat_l.set_value("---", "#FFFFFF")
@@ -681,15 +725,14 @@ class MainWindow(QMainWindow):
             "color: #888888; font-size: 12pt; font-weight: bold;"
         )
         self.lot_table.setRowCount(0)
+        self.barcode_label.clear()
 
         for row in range(6):
             self.result_table.item(row, 1).setText("---")
 
         self.measurement_count = 0
         self.current_analysis = None
-        self.statusBar().showMessage("  Referans sifirlandi")
 
-    # ── Stat Cards ───────────────────────────────────────────────────────────
     def _update_stat_cards(self, de: float, lab: LabColor, lch: LCHColor):
         de_color = UI.error_color if de > 1.0 else (UI.warning_color if de > 0.5 else UI.success_color)
         self.stat_de.set_value(f"{de:.3f}", de_color)
@@ -699,17 +742,12 @@ class MainWindow(QMainWindow):
 
     def _update_result_table(self, de: float, lab: LabColor, lch: LCHColor):
         values = [
-            (f"{lab.L:.2f}", ""),
-            (f"{lab.a:.2f}", ""),
-            (f"{lab.b:.2f}", ""),
-            (f"{lch.C:.2f}", ""),
-            (f"{lch.h:.2f}", ""),
-            (f"{de:.3f}", ""),
+            (f"{lab.L:.2f}", ""), (f"{lab.a:.2f}", ""), (f"{lab.b:.2f}", ""),
+            (f"{lch.C:.2f}", ""), (f"{lch.h:.2f}", ""), (f"{de:.3f}", ""),
         ]
         for row, (val, _) in enumerate(values):
             self.result_table.item(row, 1).setText(val)
 
-    # ── Lot ──────────────────────────────────────────────────────────────────
     def _update_lot_decision(self, de: float):
         if de <= 0.5:
             text = "LOT A  -  Kusursuz Uyum"
@@ -736,17 +774,16 @@ class MainWindow(QMainWindow):
     def _update_lot_table(self, de: float):
         row = self.lot_table.rowCount()
         self.lot_table.insertRow(row)
-
         lot_name = f"LOT-{chr(65 + row)}"
         values = [lot_name, f"{de:.3f}", f"{de:.3f}", f"{de:.3f}", "1", self._de_category(de)]
-
         for col, text in enumerate(values):
             item = QTableWidgetItem(text)
             item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             if col == 5:
-                if "Kusursuz" in text or "Iyi" in text:
+                cat = text
+                if "Kusursuz" in cat or "Iyi" in cat:
                     item.setForeground(QColor(UI.success_color))
-                elif "Sinir" in text:
+                elif "Sinir" in cat:
                     item.setForeground(QColor(UI.warning_color))
                 else:
                     item.setForeground(QColor(UI.error_color))
@@ -755,10 +792,43 @@ class MainWindow(QMainWindow):
             else:
                 item.setFont(QFont("Consolas", 9))
             self.lot_table.setItem(row, col, item)
-
         self.lot_table.scrollToBottom()
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
+    def _update_target_board(self, de: float, lab: LabColor):
+        if self.reference_lab is None:
+            return
+        da = lab.a - self.reference_lab.a
+        db = lab.b - self.reference_lab.b
+        tolerans = 1.0
+
+        measurements = [(da, db, f"#{self.measurement_count+1:03d}")]
+        img_bytes = ColorPlot.create_target_board(measurements, tolerans)
+        if img_bytes:
+            pixmap = QPixmap()
+            pixmap.loadFromData(QByteArray(img_bytes))
+            scaled = pixmap.scaled(
+                self.color_plot_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.color_plot_label.setPixmap(scaled)
+
+    def _generate_barcode(self, de: float):
+        if self.reference_lab is None:
+            return
+        lot = self._de_category(de)
+        code = BarcodeGenerator.generate_codebar(lot, customer="iColor")
+        img_bytes = BarcodeGenerator.create_barcode_image(code, 300, 60)
+        if img_bytes:
+            pixmap = QPixmap()
+            pixmap.loadFromData(QByteArray(img_bytes))
+            scaled = pixmap.scaled(
+                self.barcode_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.barcode_label.setPixmap(scaled)
+
     @staticmethod
     def _de_category(de: float) -> str:
         if de <= 0.5:
@@ -772,11 +842,10 @@ class MainWindow(QMainWindow):
         else:
             return "REDDEDILDI"
 
-    # ── Import ───────────────────────────────────────────────────────────────
     def _browse_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Spektrofotometre Dosyasi Sec", "",
-            "Tum Dosyalar (*.csv *.txt *.cxf *.xml);;CSV (*.csv);;TXT (*.txt);;CXF (*.cxf);;XML (*.xml)"
+            "Tum Desteklenen (*.cxf *.csv *.txt *.xml);;CxF3 (*.cxf);;CSV (*.csv);;TXT (*.txt);;XML (*.xml)"
         )
         if path:
             self.entry_import.setText(path)
@@ -787,55 +856,245 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Hata", "Gecerli bir dosya yolu girin.")
             return
 
+        ext = os.path.splitext(path)[1].lower()
         try:
-            readings = self.parser.parse_file(path)
-            if readings:
-                self.statusBar().showMessage(f"  {len(readings)} olcum yuklendi: {os.path.basename(path)}")
+            if ext == ".cxf":
+                measurements = CxF3Parser.parse_file(path)
+                self.current_cxf_measurements = measurements
+                if measurements:
+                    self.cxf_info.setText(
+                        f"CxF3: {len(measurements)} olcum  |  "
+                        f"Illuminant: {measurements[0].illuminant}  |  "
+                        f"Observer: {measurements[0].observer_angle}"
+                    )
+                    if measurements[0].lab:
+                        self._set_reference_from_lab(measurements[0].lab, measurements[0].sample_name)
+                    if measurements[0].has_spectral_data:
+                        self._update_spectral_graph(measurements)
             else:
-                QMessageBox.information(self, "Bilgi", "Dosyada okunabilir veri bulunamadi.")
+                readings = self.parser.parse_file(path)
+                if readings:
+                    self.cxf_info.setText(f"Yuklendi: {len(readings)} olcum")
+                    if readings[0].lab:
+                        self._set_reference_from_lab(readings[0].lab, readings[0].sample_id)
+
+            self.statusBar().showMessage(f"  Dosya yuklendi: {os.path.basename(path)}")
         except Exception as e:
             QMessageBox.critical(self, "Hata", f"Dosya okunamadi:\n{e}")
 
-    # ── Export ───────────────────────────────────────────────────────────────
+    def _update_spectral_graph(self, measurements: List[CxF3Measurement]):
+        if len(measurements) < 1:
+            return
+        curves = []
+        colors = ["#1A7AE8", "#E85D1A", "#107C10", "#FFD700", "#C42B1C"]
+        for i, m in enumerate(measurements):
+            if m.has_spectral_data:
+                refl = m.interpolate_to_380_780()
+                curves.append((m.sample_name, refl, colors[i % len(colors)]))
+
+        if curves:
+            img_bytes = SpectralGraph.create_multi_plot(curves)
+            if img_bytes:
+                pixmap = QPixmap()
+                pixmap.loadFromData(QByteArray(img_bytes))
+                scaled = pixmap.scaled(
+                    self.spectral_plot_label.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self.spectral_plot_label.setPixmap(scaled)
+
+    def _select_watch_dir(self):
+        dir_path = QFileDialog.getExistingDirectory(self, "Watch Klasoru Sec")
+        if dir_path:
+            self._start_watcher(dir_path)
+
+    def _start_watcher(self, dir_path: str):
+        if self.file_watcher:
+            self.file_watcher.stop()
+
+        self.file_watcher = FileWatcher(dir_path, self._on_watcher_file)
+        if self.file_watcher.start():
+            self.watch_status.setText(f"Watch: Aktif  |  {dir_path}")
+            self.watch_status.setStyleSheet("color: #107C10; font-size: 8pt; border: none; background: transparent;")
+            self.statusBar().showMessage(f"  Watch baslatildi: {dir_path}")
+        else:
+            self.watch_status.setText("Watch: HATA")
+
+    def _on_watcher_file(self, filepath: str, measurements: List[CxF3Measurement]):
+        self.current_cxf_measurements = measurements
+        if measurements and measurements[0].lab:
+            self._set_reference_from_lab(measurements[0].lab, measurements[0].sample_name)
+        if measurements and measurements[0].has_spectral_data:
+            self._update_spectral_graph(measurements)
+        QTimer.singleShot(0, lambda: self.statusBar().showMessage(
+            f"  Yeni dosya: {os.path.basename(filepath)} ({len(measurements)} olcum)"
+        ))
+
     def _export_to_excel(self):
-        if self.measurement_count == 0:
+        if self.measurement_count == 0 and not self.current_cxf_measurements:
             QMessageBox.information(self, "Bilgi", "Kaydedilecek olcum yok.")
             return
 
         path, _ = QFileDialog.getSaveFileName(
-            self, "Excel Kaydet", f"renk_raporu_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
+            self, "Excel Kaydet",
+            f"renk_raporu_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
             "Excel Dosyasi (*.xlsx)"
         )
         if not path:
             return
 
         try:
-            import pandas as pd
-            data = []
+            master_info = {}
+            if self.reference_lab:
+                master_info = {"L": self.reference_lab.L, "a": self.reference_lab.a, "b": self.reference_lab.b}
+
+            samples = []
             for row in range(self.lot_table.rowCount()):
-                data.append({
-                    "Lot": self.lot_table.item(row, 0).text() if self.lot_table.item(row, 0) else "",
-                    "Ort. DE": self.lot_table.item(row, 1).text() if self.lot_table.item(row, 1) else "",
-                    "Min DE": self.lot_table.item(row, 2).text() if self.lot_table.item(row, 2) else "",
-                    "Max DE": self.lot_table.item(row, 3).text() if self.lot_table.item(row, 3) else "",
-                    "Adet": self.lot_table.item(row, 4).text() if self.lot_table.item(row, 4) else "",
-                    "Durum": self.lot_table.item(row, 5).text() if self.lot_table.item(row, 5) else "",
+                samples.append({
+                    "name": self.lot_table.item(row, 0).text() if self.lot_table.item(row, 0) else "",
+                    "delta_e": float(self.lot_table.item(row, 1).text()) if self.lot_table.item(row, 1) else 0,
+                    "status": self.lot_table.item(row, 5).text() if self.lot_table.item(row, 5) else "",
+                    "L": self.reference_lab.L if self.reference_lab else 0,
+                    "a": self.reference_lab.a if self.reference_lab else 0,
+                    "b": self.reference_lab.b if self.reference_lab else 0,
                 })
 
-            df = pd.DataFrame(data)
-            df.to_excel(path, index=False, sheet_id="Rapor")
-            self.statusBar().showMessage(f"  Kaydedildi: {path}")
+            report = ExcelReport()
+            success = report.create_report(
+                filepath=filepath,
+                job_name="iColor Control Raporu",
+                customer="Genel",
+                master_info=master_info,
+                samples=samples,
+            )
+
+            if success:
+                self.statusBar().showMessage(f"  Kaydedildi: {path}")
+            else:
+                QMessageBox.warning(self, "Hata", "Excel raporu olusturulamadi.")
         except Exception as e:
             QMessageBox.critical(self, "Hata", f"Kaydedilemedi:\n{e}")
 
-    # ── Lot Decision ─────────────────────────────────────────────────────────
     def _run_lot_decision(self):
         if self.lot_table.rowCount() == 0:
             QMessageBox.information(self, "Bilgi", "Once olcum yapin.")
             return
         self.statusBar().showMessage("  Lot karari uygulandi")
 
-    # ── Close ────────────────────────────────────────────────────────────────
+    def _create_new_job(self):
+        dialog = JobDialog(self)
+        if dialog.exec():
+            job = self.job_manager.create_job(
+                name=dialog.name_edit.text(),
+                customer=dialog.customer_edit.text(),
+                season=dialog.season_edit.text(),
+                description=dialog.desc_edit.toPlainText(),
+            )
+            self._refresh_job_tree()
+            self.stat_jobs.set_value(str(len(self.job_manager.jobs)))
+            self.statusBar().showMessage(f"  Yeni is olusturuldu: {job.name}")
+
+    def _add_master(self):
+        job_id = self._get_selected_job_id()
+        if not job_id:
+            QMessageBox.information(self, "Bilgi", "Once bir is secin.")
+            return
+
+        dialog = MasterDialog(self)
+        if dialog.exec():
+            lab = LabColor(
+                L=float(dialog.l_edit.text()),
+                a=float(dialog.a_edit.text()),
+                b=float(dialog.b_edit.text()),
+            )
+            master = Master(
+                name=dialog.name_edit.text(),
+                lab=lab,
+                tolerans_de=float(dialog.tolerans_edit.text()),
+                pantone=dialog.pantone_edit.text(),
+                fabric_type=dialog.fabric_edit.text(),
+            )
+            self.job_manager.add_master(job_id, master)
+            self._set_reference_from_lab(lab, master.name)
+            self._refresh_job_tree()
+            self.statusBar().showMessage(f"  Master eklendi: {master.name}")
+
+    def _add_dynamic_field(self):
+        job_id = self._get_selected_job_id()
+        if not job_id:
+            QMessageBox.information(self, "Bilgi", "Once bir is secin.")
+            return
+
+        dialog = DynamicFieldDialog(self)
+        if dialog.exec():
+            type_map = {"Metin": "text", "Sayi": "number", "Tarih": "date", "Secim": "select"}
+            self.job_manager.add_dynamic_field_def(
+                job_id,
+                key=dialog.key_edit.text(),
+                label=dialog.label_edit.text(),
+                field_type=type_map.get(dialog.type_combo.currentText(), "text"),
+            )
+            self.statusBar().showMessage(f"  Dinamik alan eklendi: {dialog.label_edit.text()}")
+
+    def _refresh_job_tree(self):
+        self.job_tree.clear()
+        for job in self.job_manager.jobs:
+            job_item = QTreeWidgetItem(self.job_tree)
+            job_item.setText(0, f"[{job.customer}] {job.name}")
+            job_item.setData(0, Qt.ItemDataRole.UserRole, ("job", job.id))
+
+            for master in job.masters:
+                master_item = QTreeWidgetItem(job_item)
+                master_item.setText(0, f"Master: {master.name}")
+                master_item.setData(0, Qt.ItemDataRole.UserRole, ("master", master.id))
+
+                for sample in job.samples:
+                    sample_item = QTreeWidgetItem(master_item)
+                    status_icon = "+" if sample.status == "Gecti" else "X"
+                    sample_item.setText(0, f"{status_icon} {sample.name} (DE={sample.delta_e:.2f})")
+                    sample_item.setData(0, Qt.ItemDataRole.UserRole, ("sample", sample.id))
+
+        self.stat_jobs.set_value(str(len(self.job_manager.jobs)))
+        total_samples = sum(j.total_samples for j in self.job_manager.jobs)
+        self.stat_samples.set_value(str(total_samples))
+
+    def _get_selected_job_id(self) -> Optional[str]:
+        item = self.job_tree.currentItem()
+        if item:
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data:
+                return data[1]
+        if self.job_manager.jobs:
+            return self.job_manager.jobs[-1].id
+        return None
+
+    def _on_tree_item_clicked(self, item, column):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+
+        item_type, item_id = data
+        if item_type == "job":
+            job = self.job_manager.get_job(item_id)
+            if job:
+                self.info_table.item(0, 1).setText("Is")
+                self.info_table.item(1, 1).setText(job.name)
+                self.info_table.item(2, 1).setText(job.customer)
+        elif item_type == "master":
+            for job in self.job_manager.jobs:
+                for m in job.masters:
+                    if m.id == item_id:
+                        self.info_table.item(0, 1).setText("Master")
+                        self.info_table.item(1, 1).setText(m.name)
+                        if m.lab:
+                            self._set_reference_from_lab(m.lab, m.name)
+                            self.info_table.item(3, 1).setText(f"{m.lab.L:.2f}")
+                            self.info_table.item(4, 1).setText(f"{m.lab.a:.2f}")
+                            self.info_table.item(5, 1).setText(f"{m.lab.b:.2f}")
+
     def closeEvent(self, event):
+        if self.file_watcher:
+            self.file_watcher.stop()
         self.camera.release()
         event.accept()

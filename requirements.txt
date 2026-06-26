@@ -1,5 +1,5 @@
 # Color Difference Calculator
-# Hybrid Color Control System
+# Endustriyel Renk Kontrol Sistemi - iColor Control
 # Uyumlu: conda cv ortami
 
 # Core
@@ -7,13 +7,23 @@ numpy>=1.24.0
 opencv-python>=4.8.0
 scikit-image>=0.21.0
 colormath>=3.0.0
+scipy>=1.11.0
 
 # UI
 PyQt6>=6.5.0
 
-# Excel export
+# Grafik
+matplotlib>=3.7.0
+
+# Veri
 pandas>=2.0.0
 xlsxwriter>=3.1.0
+
+# Watchdog (klasor izleme)
+watchdog>=3.0.0
+
+# ML (otomatik tolerans)
+scikit-learn>=1.3.0
 
 # Testing
 pytest>=7.4.0
