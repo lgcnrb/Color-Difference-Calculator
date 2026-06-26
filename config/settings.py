@@ -31,21 +31,37 @@ class ColorEngineConfig:
     spatial_variance_target: float = 2.0
     illuminant: str = "D65"
     observer_angle: str = "2"
-    illuminant_name: str = "D65 (6500K Gun Isigi)"
+    illuminant_name: str = "D65 (6500K Daylight)"
 
 
 @dataclass(frozen=True)
 class LottingConfig:
-    lot_a_multiplier: float = 0.8
-    lot_b_multiplier: float = 1.0
-    lot_c_multiplier: float = 1.5
-    device_weight: float = 0.7
-    camera_weight: float = 0.3
+    default_eps: float = 1.0
+    min_eps: float = 0.1
+    max_eps: float = 5.0
+    min_samples: int = 2
+    use_cnn: bool = True
+    auto_eps_factor: float = 0.4
+    lot_a_threshold: float = 0.5
+    lot_b_threshold: float = 1.0
+    lot_c_threshold: float = 2.0
+    lot_d_threshold: float = 3.5
+
+
+@dataclass(frozen=True)
+class CNNConfig:
+    model_name: str = "mobilenet_v3_large"
+    feature_dim: int = 960
+    use_gpu: bool = True
+    texture_bins: int = 32
+    gabor_orientations: int = 4
+    gabor_scales: int = 4
+    input_size: int = 224
 
 
 @dataclass(frozen=True)
 class UIConfig:
-    window_title: str = "Hybrid Color Control System"
+    window_title: str = "ColorIQ"
     window_min_width: int = 1200
     window_min_height: int = 720
     theme: str = "dark"
@@ -97,6 +113,7 @@ class ColorSpaces:
 CAMERA = CameraConfig()
 COLOR_ENGINE = ColorEngineConfig()
 LOTTING = LottingConfig()
+CNN = CNNConfig()
 UI = UIConfig()
 DELTA_METHODS = DeltaEmethods()
 COLOR_SPACES = ColorSpaces()

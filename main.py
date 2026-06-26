@@ -13,8 +13,8 @@ logging.basicConfig(
 def main():
     from ui.main_window import MainWindow
     app = QtWidgets.QApplication(sys.argv)
-    app.setApplicationName("Hybrid Color Control System")
-    app.setOrganizationName("ColorTech")
+    app.setApplicationName("ColorIQ")
+    app.setOrganizationName("ColorIQ")
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

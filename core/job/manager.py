@@ -36,7 +36,7 @@ class Sample:
     lab: Optional[LabColor] = None
     delta_e: float = 0.0
     lot_decision: str = ""
-    status: str = "Beklemede"
+    status: str = "Pending"
     dynamic_fields: List[DynamicField] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
@@ -67,8 +67,14 @@ class Sample:
             lab=lab,
             delta_e=d.get("delta_e", 0.0),
             lot_decision=d.get("lot_decision", ""),
-            status=d.get("status", "Beklemede"),
-            dynamic_fields=[DynamicField(**f) for f in d.get("dynamic_fields", [])],
+            status=d.get("status", "Pending"),
+            dynamic_fields=[
+                DynamicField(
+                    key=f["key"], label=f["label"], value=f.get("value", ""),
+                    field_type=f.get("type", f.get("field_type", "text")),
+                )
+                for f in d.get("dynamic_fields", [])
+            ],
             created_at=d.get("created_at", datetime.now().isoformat()),
         )
 
@@ -111,7 +117,13 @@ class Master:
             illuminants=d.get("illuminants", ["D65"]),
             fabric_type=d.get("fabric_type", ""),
             pantone=d.get("pantone", ""),
-            dynamic_fields=[DynamicField(**f) for f in d.get("dynamic_fields", [])],
+            dynamic_fields=[
+                DynamicField(
+                    key=f["key"], label=f["label"], value=f.get("value", ""),
+                    field_type=f.get("type", f.get("field_type", "text")),
+                )
+                for f in d.get("dynamic_fields", [])
+            ],
             created_at=d.get("created_at", datetime.now().isoformat()),
         )
 
@@ -153,7 +165,13 @@ class Job:
             description=d.get("description", ""),
             masters=[Master.from_dict(m) for m in d.get("masters", [])],
             samples=[Sample.from_dict(s) for s in d.get("samples", [])],
-            dynamic_fields=[DynamicField(**f) for f in d.get("dynamic_fields", [])],
+            dynamic_fields=[
+                DynamicField(
+                    key=f["key"], label=f["label"], value=f.get("value", ""),
+                    field_type=f.get("type", f.get("field_type", "text")),
+                )
+                for f in d.get("dynamic_fields", [])
+            ],
             created_at=d.get("created_at", datetime.now().isoformat()),
             updated_at=d.get("updated_at", datetime.now().isoformat()),
         )
@@ -164,11 +182,11 @@ class Job:
 
     @property
     def passed_samples(self) -> int:
-        return sum(1 for s in self.samples if s.status == "Gecti")
+        return sum(1 for s in self.samples if s.status == "Passed")
 
     @property
     def failed_samples(self) -> int:
-        return sum(1 for s in self.samples if s.status == "Reddedildi")
+        return sum(1 for s in self.samples if s.status == "Rejected")
 
     @property
     def pass_rate(self) -> float:
@@ -189,9 +207,9 @@ class JobManager:
                 with open(self.db_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 self.jobs = [Job.from_dict(j) for j in data.get("jobs", [])]
-                logger.info("%d job yuklendi", len(self.jobs))
+                logger.info("%d jobs loaded", len(self.jobs))
             except Exception as e:
-                logger.error("Veritabani yukleme hatasi: %s", e)
+                logger.error("Database load error: %s", e)
                 self.jobs = []
         else:
             self.jobs = []
@@ -220,6 +238,28 @@ class JobManager:
                 self.jobs.pop(i)
                 self._save()
                 return True
+        return False
+
+    def delete_master(self, job_id: str, master_id: str) -> bool:
+        job = self.get_job(job_id)
+        if job:
+            for i, m in enumerate(job.masters):
+                if m.id == master_id:
+                    job.masters.pop(i)
+                    job.updated_at = datetime.now().isoformat()
+                    self._save()
+                    return True
+        return False
+
+    def delete_sample(self, job_id: str, sample_id: str) -> bool:
+        job = self.get_job(job_id)
+        if job:
+            for i, s in enumerate(job.samples):
+                if s.id == sample_id:
+                    job.samples.pop(i)
+                    job.updated_at = datetime.now().isoformat()
+                    self._save()
+                    return True
         return False
 
     def add_master(self, job_id: str, master: Master) -> bool:

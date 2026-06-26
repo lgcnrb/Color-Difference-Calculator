@@ -7,9 +7,9 @@ from skimage.color import rgb2lab, lab2lch, lab2rgb
 
 def rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
     """
-    RGB (0-255) dizisini CIE L*a*b* donusumune sokar.
-    Girdi: (H, W, 3) uint8 veya float64 [0,1]
-    Cikti: (H, W, 3) float64
+    Converts RGB (0-255) array to CIE L*a*b*.
+    Input: (H, W, 3) uint8 or float64 [0,1]
+    Output: (H, W, 3) float64
     """
     if rgb.dtype == np.uint8:
         img = rgb.astype(np.float64) / 255.0
@@ -20,37 +20,37 @@ def rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
 
 def lab_to_lch(lab: np.ndarray) -> np.ndarray:
     """
-    CIE L*a*b* dizisini CIE L*C*h* donusumune sokar.
-    scikit-image lab2lch kullanir.
+    Converts CIE L*a*b* array to CIE L*C*h*.
+    Uses scikit-image lab2lch.
     """
     return lab2lch(lab)
 
 
 def lab_to_rgb(lab: np.ndarray) -> np.ndarray:
     """
-    CIE L*a*b* dizisini RGB donusumune sokar.
-    Cikti: (H, W, 3) uint8 [0-255]
+    Converts CIE L*a*b* array to RGB.
+    Output: (H, W, 3) uint8 [0-255]
     """
     rgb_float = lab2rgb(lab)
     return (np.clip(rgb_float, 0, 1) * 255).astype(np.uint8)
 
 
 def rgb_to_lab_single(r: float, g: float, b: float) -> tuple[float, float, float]:
-    """Tek bir RGB degerini L*a*b* donusumune sokar."""
+    """Converts a single RGB value to L*a*b*."""
     rgb = np.array([[[r, g, b]]], dtype=np.uint8)
     lab = rgb_to_lab(rgb)
     return float(lab[0, 0, 0]), float(lab[0, 0, 1]), float(lab[0, 0, 2])
 
 
 def lab_to_lch_single(L: float, a: float, b: float) -> tuple[float, float, float]:
-    """Tek bir L*a*b* degerini L*C*h* donusumune sokar."""
+    """Converts a single L*a*b* value to L*C*h*."""
     lab = np.array([[[L, a, b]]], dtype=np.float64)
     lch = lab_to_lch(lab)
     return float(lch[0, 0, 0]), float(lch[0, 0, 1]), float(lch[0, 0, 2])
 
 
 def lab_to_rgb_single(L: float, a: float, b: float) -> tuple[int, int, int]:
-    """Tek bir L*a*b* degerini RGB'ye donusturur (0-255)."""
+    """Converts a single L*a*b* value to RGB (0-255)."""
     lab = np.array([[[L, a, b]]], dtype=np.float64)
     rgb = lab_to_rgb(lab)
     return int(rgb[0, 0, 0]), int(rgb[0, 0, 1]), int(rgb[0, 0, 2])

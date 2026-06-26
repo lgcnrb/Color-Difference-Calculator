@@ -25,7 +25,7 @@ def _lab_to_xyz(L: float, a: float, b: float) -> tuple[float, float, float]:
 
 
 def _delta_hue(h1: float, h2: float) -> float:
-    """Iki aci arasindaki farki hesapla (derece)."""
+    """Calculate the difference between two angles (degrees)."""
     diff = h2 - h1
     if abs(diff) <= 180.0:
         return diff
@@ -37,7 +37,7 @@ def _delta_hue(h1: float, h2: float) -> float:
 
 def delta_e_cie1976(L1: float, a1: float, b1: float,
                      L2: float, a2: float, b2: float) -> float:
-    """CIE 1976 Delta E (basit öklid mesafesi)."""
+    """CIE 1976 Delta E (simple Euclidean distance)."""
     return math.sqrt((L2 - L1) ** 2 + (a2 - a1) ** 2 + (b2 - b1) ** 2)
 
 
@@ -71,10 +71,10 @@ def delta_e_cie1994(L1: float, a1: float, b1: float,
 def delta_e_cie2000(L1: float, a1: float, b1: float,
                      L2: float, a2: float, b2: float) -> float:
     """
-    CIEDE2000 Delta E - tam implementasyon.
-    Referans: CIE 224:2007
+    CIEDE2000 Delta E - full implementation.
+    Reference: CIE 224:2007
     """
-    # Adim 1: LAB'yi L'C'h' donusumu
+    # Step 1: LAB to L*C*h conversion
     C1 = math.sqrt(a1 ** 2 + b1 ** 2)
     C2 = math.sqrt(a2 ** 2 + b2 ** 2)
     C_avg = (C1 + C2) / 2.0
@@ -93,7 +93,7 @@ def delta_e_cie2000(L1: float, a1: float, b1: float,
     if h2p < 0:
         h2p += 360.0
 
-    # Adim 2: L*, C', h' farklari
+    # Step 2: L*, C', h' differences
     dLp = L2 - L1
     dCp = C2p - C1p
 
@@ -108,7 +108,7 @@ def delta_e_cie2000(L1: float, a1: float, b1: float,
 
     dHp = 2.0 * math.sqrt(C1p * C2p) * math.sin(math.radians(dhp / 2.0))
 
-    # Adim 3: Ortalamalar
+    # Step 3: Averages
     Lp_avg = (L1 + L2) / 2.0
     Cp_avg = (C1p + C2p) / 2.0
 
@@ -137,7 +137,7 @@ def delta_e_cie2000(L1: float, a1: float, b1: float,
     ))
          * math.sqrt(Cp_avg_7 / (Cp_avg_7 + 25.0 ** 7)))
 
-    # Agirlikli katsayilar (CIE standardi)
+    # Weighted coefficients (CIE standard)
     kL, kC, kH = 1.0, 1.0, 1.0
 
     return math.sqrt(
@@ -153,7 +153,7 @@ def delta_e_cmc(L1: float, a1: float, b1: float,
                 l: float = 2.0, c: float = 1.0) -> float:
     """
     CMC l:c Delta E.
-    l=2.0, c=1.0 textil icin standart degerler.
+    l=2.0, c=1.0 standard values for textiles.
     """
     C1 = math.sqrt(a1 ** 2 + b1 ** 2)
     C2 = math.sqrt(a2 ** 2 + b2 ** 2)
@@ -163,7 +163,7 @@ def delta_e_cmc(L1: float, a1: float, b1: float,
     dH_sq = max(0, (a2 - a1) ** 2 + (b2 - b1) ** 2 - dC ** 2)
     dH = math.sqrt(dH_sq)
 
-    # SL, SC, SH katsayilari
+    # SL, SC, SH coefficients
     if L1 < 16:
         SL = 0.511
     else:
@@ -205,7 +205,7 @@ def calculate_delta_e(L1: float, a1: float, b1: float,
                       L2: float, a2: float, b2: float,
                       method: DeltaEMethod = "cie2000",
                       **kwargs) -> float:
-    """Secilen yonteme gore Delta E hesapla."""
+    """Calculate Delta E using the selected method."""
     func = DELTA_E_FUNCTIONS[method]
     if method == "cie1994":
         return func(L1, a1, b1, L2, a2, b2, textiles=kwargs.get("textiles", True))
@@ -218,6 +218,6 @@ def calculate_delta_e(L1: float, a1: float, b1: float,
 
 def calculate_all_delta_e(L1: float, a1: float, b1: float,
                           L2: float, a2: float, b2: float) -> dict[str, float]:
-    """Tum Delta E yontemlerini hesapla ve sozluk olarak dondur."""
+    """Calculate all Delta E methods and return as dictionary."""
     return {name: func(L1, a1, b1, L2, a2, b2)
             for name, func in DELTA_E_FUNCTIONS.items()}

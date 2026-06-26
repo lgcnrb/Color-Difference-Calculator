@@ -26,7 +26,7 @@ ILLUMINANTS = {
     "CWF": "CWF (4150K)",
 }
 
-OBSERVER_ANGLES = {"2": "2 Aci (CIE 1931)", "10": "10 Aci (CIE 1964)"}
+OBSERVER_ANGLES = {"2": "2 Degree (CIE 1931)", "10": "10 Degree (CIE 1964)"}
 
 
 @dataclass
@@ -68,14 +68,14 @@ class CxF3Parser:
     @classmethod
     def parse_file(cls, filepath: str) -> List[CxF3Measurement]:
         if not os.path.isfile(filepath):
-            logger.error("CxF3 dosyasi bulunamadi: %s", filepath)
+            logger.error("CxF3 file not found: %s", filepath)
             return []
 
         try:
             tree = ET.parse(filepath)
             root = tree.getroot()
         except ET.ParseError as e:
-            logger.error("XML parse hatasi (%s): %s", filepath, e)
+            logger.error("XML parse error (%s): %s", filepath, e)
             return cls._fallback_parse(filepath)
 
         measurements = []
@@ -100,7 +100,7 @@ class CxF3Parser:
         if not measurements:
             measurements = cls._fallback_parse(filepath)
 
-        logger.info("CxF3: %d olcum okundu: %s", len(measurements), filepath)
+        logger.info("CxF3: %d measurements read: %s", len(measurements), filepath)
         return measurements
 
     @classmethod
@@ -110,7 +110,7 @@ class CxF3Parser:
             or elem.get("Name")
             or cls._find_text(elem, ".//Name")
             or cls._find_text(elem, ".//SampleName")
-            or "Bilinmeyen"
+            or "Unknown"
         )
 
         illuminant = cls._find_attribute(elem, "Illuminant") or "D65"
@@ -154,7 +154,7 @@ class CxF3Parser:
 
     @classmethod
     def _parse_measurement_element(cls, elem) -> Optional[CxF3Measurement]:
-        name = elem.get("name") or elem.get("Name") or cls._find_text(elem, ".//Name") or "Olcum"
+        name = elem.get("name") or elem.get("Name") or cls._find_text(elem, ".//Name") or "Measurement"
 
         illuminant = cls._find_attribute(elem, "Illuminant") or "D65"
         observer = cls._find_attribute(elem, "Observer") or "2"
@@ -217,7 +217,7 @@ class CxF3Parser:
             with open(filepath, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
         except Exception as e:
-            logger.error("Fallback okuma hatasi: %s", e)
+            logger.error("Fallback read error: %s", e)
             return []
 
         numbers = re.findall(r"[-+]?\d*\.?\d+", content)
@@ -240,7 +240,7 @@ class CxF3Parser:
         for idx, chunk in enumerate(chunks):
             lab = cls._lab_from_spectral(NM_RANGE, chunk, "D65", "2")
             measurements.append(CxF3Measurement(
-                sample_name=f"Olcum-{idx+1:03d}",
+                sample_name=f"Measurement-{idx+1:03d}",
                 illuminant="D65",
                 observer_angle="2",
                 wavelengths=NM_RANGE,
@@ -378,7 +378,7 @@ class CxF3Parser:
             return lab
 
         except Exception as e:
-            logger.debug("Spektral->LAB donusum hatasi: %s", e)
+            logger.debug("Spectral->LAB conversion error: %s", e)
             return None
 
     @staticmethod

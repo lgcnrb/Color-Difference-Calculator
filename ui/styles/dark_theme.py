@@ -171,6 +171,16 @@ def get_dark_stylesheet() -> str:
         background-color: #306030;
     }}
 
+    QPushButton#btn_delete {{
+        background-color: #5A2A2A;
+        color: #FF8080;
+        border: 1px solid #7A3A3A;
+        border-radius: 6px;
+    }}
+    QPushButton#btn_delete:hover {{
+        background-color: #6A3030;
+    }}
+
     /* ===== COMBO BOX ===== */
     QComboBox {{
         background-color: #353535;

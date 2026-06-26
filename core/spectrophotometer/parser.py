@@ -40,12 +40,12 @@ class SpectrophotometerParser:
     @classmethod
     def parse_file(cls, filepath: str) -> List[SpectralReading]:
         if not os.path.isfile(filepath):
-            logger.error("Dosya bulunamadı: %s", filepath)
+            logger.error("File not found: %s", filepath)
             return []
 
         ext = os.path.splitext(filepath)[1].lower()
         if ext not in cls.SUPPORTED_EXTENSIONS:
-            logger.warning("Desteklenmeyen dosya formatı: %s", ext)
+            logger.warning("Unsupported file format: %s", ext)
 
         readings: List[SpectralReading] = []
         try:
@@ -70,9 +70,9 @@ class SpectrophotometerParser:
                             sample_id=f"SAT-{line_no:04d}",
                         ))
         except Exception as e:
-            logger.error("Dosya okuma hatası (%s): %s", filepath, e)
+            logger.error("File read error (%s): %s", filepath, e)
 
-        logger.info("%d okuma yüklendi: %s", len(readings), filepath)
+        logger.info("%d readings loaded: %s", len(readings), filepath)
         return readings
 
     @staticmethod

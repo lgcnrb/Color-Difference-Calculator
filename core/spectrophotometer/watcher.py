@@ -47,10 +47,10 @@ class XriteFileHandler:
 
             if measurements:
                 self.callback(filepath, measurements)
-                logger.info("Dosya islendi: %s (%d olcum)", filepath, len(measurements))
+                logger.info("File processed: %s (%d measurements)", filepath, len(measurements))
 
         except Exception as e:
-            logger.error("Dosya isleme hatasi (%s): %s", filepath, e)
+            logger.error("File processing error (%s): %s", filepath, e)
 
 
 class FileWatcher:
@@ -75,15 +75,15 @@ class FileWatcher:
 
     def start(self) -> bool:
         if self._running:
-            logger.warning("Watcher zaten calisiyor")
+            logger.warning("Watcher already running")
             return False
 
         if not os.path.isdir(self.watch_dir):
             try:
                 os.makedirs(self.watch_dir, exist_ok=True)
-                logger.info("Watcher klasoru olusturuldu: %s", self.watch_dir)
+                logger.info("Watcher directory created: %s", self.watch_dir)
             except OSError as e:
-                logger.error("Watcher klasoru olusturulamadi: %s", e)
+                logger.error("Watcher directory could not be created: %s", e)
                 return False
 
         try:
@@ -109,15 +109,15 @@ class FileWatcher:
             self._observer.schedule(event_handler, self.watch_dir, recursive=self.recursive)
             self._observer.start()
             self._running = True
-            logger.info("Watcher baslatildi: %s", self.watch_dir)
+            logger.info("Watcher started: %s", self.watch_dir)
             return True
 
         except ImportError:
-            logger.warning("watchdog yok, polling moduna geciliyor")
+            logger.warning("watchdog not found, switching to polling mode")
             self._start_polling()
             return True
         except Exception as e:
-            logger.error("Watcher baslatma hatasi: %s", e)
+            logger.error("Watcher start error: %s", e)
             self._start_polling()
             return True
 
@@ -125,7 +125,7 @@ class FileWatcher:
         self._running = True
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
-        logger.info("Polling modu baslatildi: %s", self.watch_dir)
+        logger.info("Polling mode started: %s", self.watch_dir)
 
     def _poll_loop(self):
         known = set()
@@ -144,7 +144,7 @@ class FileWatcher:
 
                 known = current
             except Exception as e:
-                logger.error("Polling hatasi: %s", e)
+                logger.error("Polling error: %s", e)
 
             time.sleep(2.0)
 
@@ -173,7 +173,7 @@ class FileWatcher:
         if self._thread:
             self._thread.join(timeout=5)
             self._thread = None
-        logger.info("Watcher durduruldu")
+        logger.info("Watcher stopped")
 
     def get_recent_files(self, count: int = 10) -> List[str]:
         files = []

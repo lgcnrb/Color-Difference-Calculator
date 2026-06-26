@@ -42,20 +42,20 @@ class MetamerismReport:
     @property
     def summary(self) -> str:
         if self.overall_passed:
-            return "GECTI - Tum isik kaynaklarinda uyumlu"
-        return f"RED - Metamerik risk: {', '.join(self.risk_illuminants)}"
+            return "PASSED - Matched under all light sources"
+        return f"REJECTED - Metamerism risk: {', '.join(self.risk_illuminants)}"
 
 
 class MetamerismChecker:
     ILLUMINANT_KEYS = {
-        "D65": "D65 (Gun Isigi)",
-        "D50": "D50 ( baski )",
-        "A": "A ( Ev Isigi )",
-        "F2": "F2 (Ofis Isigi)",
+        "D65": "D65 (Daylight)",
+        "D50": "D50 (Print)",
+        "A": "A (Incandescent)",
+        "F2": "F2 (Office)",
         "F7": "F7 (Fluoresan)",
         "F11": "F11 (Fluoresan)",
-        "TL84": "TL84 (Magaza)",
-        "CWF": "CWF (Magaza)",
+        "TL84": "TL84 (Retail)",
+        "CWF": "CWF (Retail)",
     }
 
     def __init__(self, method: str = "delta_e_cie2000"):
@@ -66,14 +66,14 @@ class MetamerismChecker:
         reference: LabColor,
         sample: LabColor,
         illuminants: Optional[List[str]] = None,
-        tolerans_de: float = 1.0,
+        tolerance_de: float = 1.0,
     ) -> MetamerismReport:
         if illuminants is None:
             illuminants = ["D65", "A", "TL84"]
 
         report = MetamerismReport(
-            reference_name="Referans",
-            sample_name="Numune",
+            reference_name="Reference",
+            sample_name="Sample",
         )
 
         for illum in illuminants:
@@ -82,7 +82,7 @@ class MetamerismChecker:
             da = sample.a - reference.a
             db = sample.b - reference.b
 
-            passed = de <= tolerans_de
+            passed = de <= tolerance_de
 
             result = MetamerismResult(
                 illuminant=illum,
@@ -106,12 +106,12 @@ class MetamerismChecker:
         reference: LabColor,
         samples: List[Tuple[str, LabColor]],
         illuminants: Optional[List[str]] = None,
-        tolerans_de: float = 1.0,
+        tolerance_de: float = 1.0,
     ) -> List[Tuple[str, MetamerismReport]]:
         results = []
         for name, sample in samples:
-            report = self.check(reference, sample, illuminants, tolerans_de)
-            report.reference_name = "Referans"
+            report = self.check(reference, sample, illuminants, tolerance_de)
+            report.reference_name = "Reference"
             report.sample_name = name
             results.append((name, report))
         return results

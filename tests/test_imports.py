@@ -51,7 +51,7 @@ lot = engine.make_decision(device_de=0.5, camera_de=0.4, surface_variance=0.5, i
 print(f"[6] LottingEngine OK: {lot.decision.value} DE={lot.final_de:.4f}")
 
 lot_red = engine.make_decision(device_de=0.3, camera_de=0.2, surface_variance=5.0, is_homogeneous=False)
-print(f"    Heterojen test: {lot_red.decision.value}")
+    print(f"    Heterogeneous test: {lot_red.decision.value}")
 
 # 7. Test Parser
 from core.spectrophotometer.parser import SpectrophotometerParser
@@ -60,7 +60,7 @@ sample_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 readings = parser.parse_file(sample_path)
 print(f"[7] Parser OK: {len(readings)} readings loaded")
 if readings:
-    print(f"    Ilk okuma: L={readings[0].lab.L:.4f} a={readings[0].lab.a:.4f} b={readings[0].lab.b:.4f}")
+    print(f"    First reading: L={readings[0].lab.L:.4f} a={readings[0].lab.a:.4f} b={readings[0].lab.b:.4f}")
 
 # 8. Test Surface Analysis
 analysis = ColorEngine.analyze_surface(rgb_frame)

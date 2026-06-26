@@ -16,9 +16,9 @@ class SpectralGraph:
         master_reflectance: List[float],
         sample_reflectance: List[float],
         master_name: str = "Master",
-        sample_name: str = "Numune",
+        sample_name: str = "Sample",
         wavelengths: Optional[List[int]] = None,
-        title: str = "Spektral Egriler",
+        title: str = "Spectral Curves",
     ) -> Optional[bytes]:
         try:
             import matplotlib
@@ -41,10 +41,10 @@ class SpectralGraph:
             ax.plot(wvl, sample, color="#E85D1A", linewidth=2.0, label=sample_name, marker="s", markersize=3)
 
             diff = np.array(master[:n]) - np.array(sample[:n])
-            ax.fill_between(wvl, master, sample, alpha=0.15, color="#FFD700", label="Fark Alani")
+            ax.fill_between(wvl, master, sample, alpha=0.15, color="#FFD700", label="Difference Area")
 
-            ax.set_xlabel("Dalga Boyu (nm)", color="#AAAAAA", fontsize=9)
-            ax.set_ylabel("Yansima (%)", color="#AAAAAA", fontsize=9)
+            ax.set_xlabel("Wavelength (nm)", color="#AAAAAA", fontsize=9)
+            ax.set_ylabel("Reflectance (%)", color="#AAAAAA", fontsize=9)
             ax.set_title(title, color="#FFFFFF", fontsize=11, fontweight="bold")
             ax.set_xlim(380, 780)
             ax.set_ylim(0, 100)
@@ -62,17 +62,17 @@ class SpectralGraph:
             return buf.getvalue()
 
         except ImportError:
-            logger.warning("matplotlib yok, grafik olusturulamadi")
+            logger.warning("matplotlib not available, graph could not be created")
             return None
         except Exception as e:
-            logger.error("Spektral grafik hatasi: %s", e)
+            logger.error("Spectral graph error: %s", e)
             return None
 
     @staticmethod
     def create_multi_plot(
         curves: List[Tuple[str, List[float], str]],
         wavelengths: Optional[List[int]] = None,
-        title: str = "Coklu Spektral Egriler",
+        title: str = "Multi Spectral Curves",
     ) -> Optional[bytes]:
         try:
             import matplotlib
@@ -93,8 +93,8 @@ class SpectralGraph:
                 c = color_override if color_override else colors[i % len(colors)]
                 ax.plot(wavelengths[:n], refl[:n], color=c, linewidth=1.8, label=name, marker="o", markersize=2)
 
-            ax.set_xlabel("Dalga Boyu (nm)", color="#AAAAAA", fontsize=9)
-            ax.set_ylabel("Yansima (%)", color="#AAAAAA", fontsize=9)
+            ax.set_xlabel("Wavelength (nm)", color="#AAAAAA", fontsize=9)
+            ax.set_ylabel("Reflectance (%)", color="#AAAAAA", fontsize=9)
             ax.set_title(title, color="#FFFFFF", fontsize=11, fontweight="bold")
             ax.set_xlim(380, 780)
             ax.set_ylim(0, 100)
@@ -112,5 +112,5 @@ class SpectralGraph:
             return buf.getvalue()
 
         except Exception as e:
-            logger.error("Coklu spektral grafik hatasi: %s", e)
+            logger.error("Multi spectral graph error: %s", e)
             return None

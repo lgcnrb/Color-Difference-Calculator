@@ -39,19 +39,19 @@ class CameraManager:
             return True
         self._capture = cv2.VideoCapture(dev)
         if not self._capture.isOpened():
-            logger.error("Kamera açılamadı: device_id=%d", dev)
+            logger.error("Camera could not be opened: device_id=%d", dev)
             return False
         self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA.width)
         self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA.height)
         self._capture.set(cv2.CAP_PROP_FPS, CAMERA.fps_target)
-        logger.info("Kamera açıldı: device_id=%d", dev)
+        logger.info("Camera opened: device_id=%d", dev)
         return True
 
     def release(self) -> None:
         if self._capture is not None:
             self._capture.release()
             self._capture = None
-            logger.info("Kamera serbest bırakıldı.")
+            logger.info("Camera released.")
 
     @property
     def is_opened(self) -> bool:
@@ -59,11 +59,11 @@ class CameraManager:
 
     def read_frame(self) -> Optional[CameraFrame]:
         if not self.is_opened:
-            logger.warning("Kamera açık değil, okunamaz.")
+            logger.warning("Camera is not open, cannot read.")
             return None
         ret, frame = self._capture.read()
         if not ret or frame is None:
-            logger.error("Kare okunamadı.")
+            logger.error("Frame could not be read.")
             return None
         preview = cv2.resize(frame, (CAMERA.preview_width, CAMERA.preview_height))
         preview_rgb = cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)

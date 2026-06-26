@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import numpy as np
 
-# colormath kutuphanesi numpy 2.x ile uyumsuz (numpy.asscalar kaldirilmis)
-# Bu sorunu cozmek icin asscalar fonksiyonunu geri ekliyoruz.
+# colormath library is incompatible with numpy 2.x (numpy.asscalar removed)
+# We re-add the asscalar function to fix this.
 if not hasattr(np, "asscalar"):
     np.asscalar = lambda x: x.item()
 

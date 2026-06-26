@@ -18,9 +18,9 @@ class LotDecision(Enum):
 
 
 class MeasurementSource(Enum):
-    SPECTROPHOTOMETER = "Spektrofotometre"
-    CAMERA = "Kamera"
-    HYBRID = "Hibrit"
+    SPECTROPHOTOMETER = "Spectrophotometer"
+    CAMERA = "Camera"
+    HYBRID = "Hybrid"
 
 
 @dataclass

@@ -54,7 +54,7 @@ class BarcodeGenerator:
                     ax.add_patch(patches.Rectangle((x, 0.15), bar_width * 0.8, 0.55, color="black"))
 
             ax.text(0.5, 0.85, code, ha="center", va="center", fontsize=7, fontfamily="monospace", color="black")
-            ax.text(0.5, 0.05, "iColor Control", ha="center", va="center", fontsize=5, color="#888888")
+            ax.text(0.5, 0.05, "ColorIQ", ha="center", va="center", fontsize=5, color="#888888")
 
             buf = io.BytesIO()
             fig.savefig(buf, format="png", bbox_inches="tight", dpi=100, facecolor="white")
@@ -63,7 +63,7 @@ class BarcodeGenerator:
             return buf.getvalue()
 
         except Exception as e:
-            logger.error("Barkod olusturma hatasi: %s", e)
+            logger.error("Barcode creation error: %s", e)
             return None
 
     @staticmethod
@@ -77,7 +77,7 @@ class BarcodeGenerator:
     ) -> str:
         lines = [
             "=" * 40,
-            "  iColor Control - RENK KALITE ETIKETI",
+            "  ColorIQ - COLOR QUALITY LABEL",
             "=" * 40,
             f"  Lot:        {lot_name}",
         ]
@@ -86,10 +86,10 @@ class BarcodeGenerator:
         if pantone:
             lines.append(f"  Pantone:    {pantone}")
         if customer:
-            lines.append(f"  Musteri:    {customer}")
+            lines.append(f"  Customer:   {customer}")
         lines.extend([
             f"  Delta E:    {de_value:.3f}",
-            f"  Durum:      {status}",
+            f"  Status:     {status}",
             "=" * 40,
         ])
         return "\n".join(lines)
